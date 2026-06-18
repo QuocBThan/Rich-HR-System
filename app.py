@@ -1,9 +1,13 @@
 """Attendance Management System — Flask Application"""
 import csv
 import io
+import json as _json
 import os
 import re
 import secrets
+import threading as _threading
+import urllib.request
+import urllib.error
 from datetime import datetime as _dt, timedelta
 from functools import wraps
 
@@ -1721,6 +1725,260 @@ def system_update():
 
     return jsonify({'ok': True, 'steps': steps,
                     'message': 'Cập nhật thành công! Server đang khởi động lại…'})
+
+
+# ------------------------------------------------------------------ #
+# LARK API SYNC
+# ------------------------------------------------------------------ #
+
+def _lark_get_token(base_url, app_id, app_secret):
+    url     = f'{base_url}/open-apis/auth/v3/tenant_access_token/internal'
+    payload = _json.dumps({'app_id': app_id, 'app_secret': app_secret}).encode()
+    req     = urllib.request.Request(url, data=payload,
+                                     headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read())
+            if data.get('code') == 0:
+                return data.get('tenant_access_token', '')
+    except Exception:
+        return None
+    return None
+
+
+def _lark_fetch_records(base_url, token, user_ids, date_from_int, date_to_int):
+    url     = f'{base_url}/open-apis/attendance/v1/user_tasks/query'
+    payload = _json.dumps({
+        'user_ids':         user_ids,
+        'check_date_from':  date_from_int,
+        'check_date_to':    date_to_int,
+        'need_overtime_result': False,
+    }).encode()
+    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+    req = urllib.request.Request(url, data=payload, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = _json.loads(resp.read())
+        if data.get('code') != 0:
+            raise RuntimeError(f'Lark API lỗi {data.get("code")}: {data.get("msg")}')
+        return data.get('data', {}).get('user_task_results', [])
+
+
+def _calc_att_metrics(clock_in, clock_out, emp):
+    start_t  = (emp.get('start_time') or '09:00')[:5]
+    break_h  = float(emp.get('break_hrs', 1.0))
+    max_h    = float(emp.get('max_hrs_day', 8.0))
+
+    if not clock_in and not clock_out:
+        return {'actual_hrs': 0, 'net_hrs': 0, 'paid_hrs': 0,
+                'status': '⚠️ Missing Clock In / Clock Out'}
+    if not clock_in:
+        return {'actual_hrs': 0, 'net_hrs': 0, 'paid_hrs': 0, 'status': '⚠️ Missing Clock In'}
+    if not clock_out:
+        return {'actual_hrs': 0, 'net_hrs': 0, 'paid_hrs': 0, 'status': '⚠️ Missing Clock Out'}
+    try:
+        ci = _dt.strptime(clock_in[:5], '%H:%M')
+        co = _dt.strptime(clock_out[:5], '%H:%M')
+        st = _dt.strptime(start_t, '%H:%M')
+        secs = (co - ci).total_seconds()
+        if secs < 0:
+            secs += 86400
+        actual_hrs = secs / 3600
+        net_hrs    = max(0.0, actual_hrs - break_h)
+        paid_hrs   = round(min(net_hrs, max_h), 2)
+        late_min   = (ci - st).total_seconds() / 60
+        if late_min > 15:
+            status = '⚠️ Late Clock In'
+        elif net_hrs < max_h * 0.75:
+            status = '⚠️ Under Hours'
+        elif actual_hrs > max_h + break_h + 0.5:
+            status = '⚠️ Overtime'
+        else:
+            status = '✅ OK'
+        return {'actual_hrs': round(actual_hrs, 2), 'net_hrs': round(net_hrs, 2),
+                'paid_hrs': paid_hrs, 'status': status}
+    except Exception:
+        return {'actual_hrs': 0, 'net_hrs': 0, 'paid_hrs': 0, 'status': '⚠️ Error'}
+
+
+def _lark_sync_run(date_from_str, date_to_str, triggered_by='manual'):
+    from datetime import date as _date
+    cfg        = _load_sys_config()
+    app_id     = cfg.get('lark_app_id', '').strip()
+    app_secret = cfg.get('lark_app_secret', '').strip()
+    base_url   = cfg.get('lark_base_url', 'https://open.feishu.cn').rstrip('/')
+    logs       = []
+
+    if not app_id or not app_secret:
+        return {'ok': False, 'error': 'Chưa cấu hình Lark App ID / App Secret', 'logs': []}
+
+    logs.append('→ Đang lấy access token từ Lark...')
+    token = _lark_get_token(base_url, app_id, app_secret)
+    if not token:
+        db.add_lark_sync_log(triggered_by, date_from_str, date_to_str, 0,
+                             'Lỗi: không lấy được token', 'error')
+        return {'ok': False, 'error': 'Không lấy được token — kiểm tra App ID / Secret', 'logs': logs}
+    logs.append('✓ Token OK')
+
+    employees = db.get_all_employees()
+    mapped    = [e for e in employees if e.get('lark_user_id', '').strip()]
+    if not mapped:
+        return {'ok': False,
+                'error': 'Chưa có nhân viên nào được mapping Lark User ID', 'logs': logs}
+
+    user_map  = {e['lark_user_id']: e for e in mapped}
+    lark_ids  = list(user_map.keys())
+    d_from_i  = int(_date.fromisoformat(date_from_str).strftime('%Y%m%d'))
+    d_to_i    = int(_date.fromisoformat(date_to_str).strftime('%Y%m%d'))
+
+    logs.append(f'→ Fetch records cho {len(lark_ids)} NV ({date_from_str} → {date_to_str})...')
+    try:
+        tasks = _lark_fetch_records(base_url, token, lark_ids, d_from_i, d_to_i)
+    except Exception as e:
+        db.add_lark_sync_log(triggered_by, date_from_str, date_to_str, 0, str(e), 'error')
+        return {'ok': False, 'error': str(e), 'logs': logs}
+
+    logs.append(f'✓ Nhận được {len(tasks)} records từ Lark')
+    batch = []
+
+    for task in tasks:
+        uid = task.get('user_id', '')
+        emp = user_map.get(uid)
+        if not emp:
+            continue
+        day = str(task.get('day', ''))
+        if len(day) != 8:
+            continue
+        date_str     = f'{day[:4]}-{day[4:6]}-{day[6:]}'
+        records      = task.get('records', [])
+        ci_ts = co_ts = None
+        for r in records:
+            sub = r.get('user_sub_type', 0)
+            ts  = r.get('check_time', '')
+            if not ts:
+                continue
+            ts_i = int(ts)
+            if sub == 1 and ci_ts is None:
+                ci_ts = ts_i
+            elif sub == 2:
+                co_ts = ts_i
+        ci_str = _dt.fromtimestamp(ci_ts).strftime('%H:%M') if ci_ts else ''
+        co_str = _dt.fromtimestamp(co_ts).strftime('%H:%M') if co_ts else ''
+        calc   = _calc_att_metrics(ci_str, co_str, emp)
+        batch.append({
+            'date':          date_str,
+            'employee_id':   emp['id'],
+            'employee_name': emp['name'],
+            'lark_name':     emp['name'],
+            'department':    emp.get('department', ''),
+            'role':          emp.get('role', ''),
+            'clock_in':      ci_str,
+            'clock_out':     co_str,
+            'actual_hrs':    calc['actual_hrs'],
+            'break_hrs':     emp.get('break_hrs', 1.0),
+            'net_hrs':       calc['net_hrs'],
+            'paid_hrs':      calc['paid_hrs'],
+            'status':        calc['status'],
+            'notes':         'Lark API Sync',
+        })
+        logs.append(f'  ✓ {emp["name"]} [{date_str}] {ci_str or "—"}→{co_str or "—"} {calc["status"]}')
+
+    if batch:
+        db.save_attendance_batch(batch)
+    db.add_lark_sync_log(triggered_by, date_from_str, date_to_str,
+                         len(batch), '\n'.join(logs), 'ok')
+    return {'ok': True, 'processed': len(batch), 'logs': logs}
+
+
+# ── Background auto-sync loop ─────────────────────────────────────────
+
+def _lark_auto_sync_loop():
+    import time
+    while True:
+        try:
+            cfg = _load_sys_config()
+            if cfg.get('lark_auto_sync'):
+                from datetime import date as _date
+                today = _date.today().isoformat()
+                _lark_sync_run(today, today, triggered_by='auto')
+                interval = int(cfg.get('lark_sync_interval', 15)) * 60
+            else:
+                interval = 60
+        except Exception:
+            interval = 60
+        time.sleep(interval)
+
+_lark_bg = _threading.Thread(target=_lark_auto_sync_loop, daemon=True)
+_lark_bg.start()
+
+
+# ── Lark sync routes ──────────────────────────────────────────────────
+
+@app.route('/lark-sync')
+@login_required
+@hr_required
+def lark_sync_page():
+    cfg   = _load_sys_config()
+    emps  = db.get_all_employees()
+    slogs = db.get_lark_sync_logs(30)
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    return render_template('lark_sync.html', employees=emps,
+                           lark_cfg=cfg, sync_logs=slogs, today=today)
+
+
+@app.route('/lark/config', methods=['POST'])
+@login_required
+@hr_required
+def lark_config_save():
+    cfg = _load_sys_config()
+    cfg['lark_app_id']        = request.form.get('lark_app_id', '').strip()
+    cfg['lark_app_secret']    = request.form.get('lark_app_secret', '').strip()
+    cfg['lark_base_url']      = request.form.get('lark_base_url', 'https://open.feishu.cn').strip()
+    cfg['lark_auto_sync']     = request.form.get('lark_auto_sync') == 'on'
+    cfg['lark_sync_interval'] = int(request.form.get('lark_sync_interval', 15) or 15)
+    _save_sys_config(cfg)
+    flash('Đã lưu cấu hình Lark API', 'success')
+    return redirect(url_for('lark_sync_page'))
+
+
+@app.route('/lark/mapping', methods=['POST'])
+@login_required
+@hr_required
+def lark_save_mapping():
+    for key, val in request.form.items():
+        if key.startswith('lark_uid_'):
+            emp_id = key[len('lark_uid_'):]
+            db.save_lark_user_id(emp_id, val.strip())
+    flash('Đã lưu mapping Lark User ID', 'success')
+    return redirect(url_for('lark_sync_page'))
+
+
+@app.route('/lark/test-token', methods=['POST'])
+@login_required
+@hr_required
+def lark_test_token():
+    cfg        = _load_sys_config()
+    app_id     = cfg.get('lark_app_id', '').strip()
+    app_secret = cfg.get('lark_app_secret', '').strip()
+    base_url   = cfg.get('lark_base_url', 'https://open.feishu.cn').rstrip('/')
+    if not app_id or not app_secret:
+        return jsonify({'ok': False, 'error': 'Chưa lưu App ID / Secret'})
+    token = _lark_get_token(base_url, app_id, app_secret)
+    if token:
+        return jsonify({'ok': True, 'message': 'Kết nối Lark thành công!'})
+    return jsonify({'ok': False, 'error': 'Lỗi kết nối — kiểm tra App ID / Secret và quyền app'})
+
+
+@app.route('/lark/sync', methods=['POST'])
+@login_required
+@hr_required
+def lark_sync_manual():
+    from datetime import date as _date
+    date_from = request.form.get('date_from', _date.today().isoformat())
+    date_to   = request.form.get('date_to',   _date.today().isoformat())
+    result    = _lark_sync_run(date_from, date_to,
+                               triggered_by=session.get('username', 'manual'))
+    return jsonify(result)
 
 
 # ------------------------------------------------------------------ #

@@ -132,6 +132,21 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now','localtime'))
             )
         ''')
+        emp_cols2 = [r[1] for r in conn.execute("PRAGMA table_info(employees)").fetchall()]
+        if 'lark_user_id' not in emp_cols2:
+            conn.execute("ALTER TABLE employees ADD COLUMN lark_user_id TEXT DEFAULT ''")
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS lark_sync_logs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                triggered_by  TEXT DEFAULT 'manual',
+                date_from     TEXT DEFAULT '',
+                date_to       TEXT DEFAULT '',
+                records_count INTEGER DEFAULT 0,
+                log_text      TEXT DEFAULT '',
+                status        TEXT DEFAULT 'ok',
+                created_at    TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
 
 
 @contextmanager
@@ -811,6 +826,36 @@ def get_employee_leave_summary(year, current_month):
                 emp['leave_remaining'] = None
             result.append(emp)
         return result
+
+
+# ------------------------------------------------------------------ #
+# LARK SYNC
+# ------------------------------------------------------------------ #
+
+def save_lark_user_id(employee_id, lark_user_id):
+    with get_db() as conn:
+        conn.execute("UPDATE employees SET lark_user_id=? WHERE id=?",
+                     (lark_user_id.strip(), employee_id))
+
+
+def get_lark_sync_logs(limit=50):
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM lark_sync_logs ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_lark_sync_log(triggered_by, date_from, date_to, count, log_text, status='ok'):
+    try:
+        with get_db() as conn:
+            conn.execute('''
+                INSERT INTO lark_sync_logs
+                    (triggered_by, date_from, date_to, records_count, log_text, status)
+                VALUES (?,?,?,?,?,?)
+            ''', (triggered_by, date_from, date_to, count, log_text, status))
+    except Exception:
+        pass
 
 
 def get_dashboard_stats():

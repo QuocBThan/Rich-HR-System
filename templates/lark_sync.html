@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Sync Lark API — RichHR{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h4><i class="bi bi-arrow-left-right me-2" style="color:#3b82f6"></i>Sync Lark API</h4>
+    <div class="page-sub">Tự động kéo dữ liệu chấm công từ Lark Attendance</div>
+  </div>
+  {% set cfg_ok = lark_cfg.get('lark_app_id') and lark_cfg.get('lark_app_secret') %}
+  {% set mapped_count = employees | selectattr('lark_user_id') | list | length %}
+  <div class="d-flex gap-2 align-items-center">
+    {% if cfg_ok %}
+    <span style="font-size:.75rem;background:#f0fdf4;border:1px solid #86efac;color:#15803d;padding:4px 10px;border-radius:99px;font-weight:600">
+      <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>App đã cấu hình
+    </span>
+    {% else %}
+    <span style="font-size:.75rem;background:#fef9c3;border:1px solid #fde047;color:#854d0e;padding:4px 10px;border-radius:99px;font-weight:600">
+      <i class="bi bi-exclamation-circle me-1"></i>Chưa cấu hình App
+    </span>
+    {% endif %}
+    <span style="font-size:.75rem;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:4px 10px;border-radius:99px;font-weight:600">
+      {{ mapped_count }}/{{ employees|length }} NV mapped
+    </span>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  <!-- LEFT COLUMN -->
+  <div class="col-lg-6">
+
+    <!-- App Config -->
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-key" style="color:#6366f1"></i> Cấu Hình Lark App
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('lark_config_save') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-3">
+            <label class="form-label">Lark Server</label>
+            <select name="lark_base_url" class="form-select">
+              <option value="https://open.larksuite.com" {{ 'selected' if lark_cfg.get('lark_base_url','').startswith('https://open.larksuite') }}>
+                Lark International (open.larksuite.com)
+              </option>
+              <option value="https://open.feishu.cn" {{ 'selected' if lark_cfg.get('lark_base_url','').startswith('https://open.feishu') }}>
+                Feishu China (open.feishu.cn)
+              </option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">App ID <span style="color:#dc2626">*</span></label>
+            <input type="text" name="lark_app_id" class="form-control"
+                   placeholder="cli_xxxxxxxxxxxxxxxx"
+                   value="{{ lark_cfg.get('lark_app_id','') }}">
+            <div class="form-text">Lấy từ Lark Developer Console → App Info</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">App Secret <span style="color:#dc2626">*</span></label>
+            <input type="password" name="lark_app_secret" class="form-control"
+                   placeholder="{{ '••••••••' if lark_cfg.get('lark_app_secret') else 'Nhập App Secret' }}"
+                   value="{{ lark_cfg.get('lark_app_secret','') }}">
+          </div>
+
+          <div class="mb-3 p-3" style="background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <label class="form-label mb-0 fw-600">Tự động sync</label>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="lark_auto_sync" id="autoSync"
+                       {{ 'checked' if lark_cfg.get('lark_auto_sync') }}>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span style="font-size:.82rem;color:#64748b">Mỗi</span>
+              <input type="number" name="lark_sync_interval" class="form-control form-control-sm"
+                     style="width:70px" min="5" max="60"
+                     value="{{ lark_cfg.get('lark_sync_interval', 15) }}">
+              <span style="font-size:.82rem;color:#64748b">phút — chỉ sync ngày hôm nay</span>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-floppy me-1"></i>Lưu Cấu Hình
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testToken()">
+              <i class="bi bi-plug me-1"></i>Kiểm tra kết nối
+            </button>
+          </div>
+          <div id="token-result" class="mt-2" style="display:none;font-size:.8rem;padding:6px 10px;border-radius:6px"></div>
+        </form>
+
+        <div class="mt-3 p-3" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
+          <div style="font-size:.78rem;font-weight:600;color:#92400e;margin-bottom:6px">
+            <i class="bi bi-info-circle me-1"></i>Hướng dẫn tạo Lark App
+          </div>
+          <ol style="font-size:.76rem;color:#78350f;margin:0;padding-left:16px;line-height:1.8">
+            <li>Vào <strong>open.larksuite.com/app</strong> → Create Custom App</li>
+            <li>Permissions → Attendance → bật <strong>attendance:record:readonly</strong></li>
+            <li>Security → thêm Server IP (hoặc 0.0.0.0/0 để test)</li>
+            <li>Copy <strong>App ID</strong> và <strong>App Secret</strong> từ tab App Info</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual Sync -->
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-repeat" style="color:#3b82f6"></i> Sync Thủ Công
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-3">
+          <div class="col">
+            <label class="form-label">Từ ngày</label>
+            <input type="date" id="syncFrom" class="form-control" value="{{ today }}">
+          </div>
+          <div class="col">
+            <label class="form-label">Đến ngày</label>
+            <input type="date" id="syncTo" class="form-control" value="{{ today }}">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm w-100" onclick="runSync()" id="syncBtn">
+          <i class="bi bi-arrow-repeat me-1"></i>Bắt Đầu Sync
+        </button>
+
+        <div id="sync-log" class="mt-3" style="display:none">
+          <div style="font-size:.72rem;font-weight:600;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">LOG</div>
+          <pre id="sync-log-text" style="background:#0f172a;color:#4ade80;font-size:.74rem;border-radius:8px;padding:12px 14px;margin:0;max-height:220px;overflow-y:auto;font-family:'Courier New',monospace;line-height:1.6"></pre>
+          <div id="sync-result" class="mt-2" style="font-size:.82rem;font-weight:600"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div class="col-lg-6">
+
+    <!-- Employee Mapping -->
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-people me-2" style="color:#6366f1"></i>Mapping Nhân Viên ↔ Lark User ID</span>
+        <span style="font-size:.72rem;color:#94a3b8">{{ mapped_count }} / {{ employees|length }} đã map</span>
+      </div>
+      <div class="card-body p-0">
+        <form method="POST" action="{{ url_for('lark_save_mapping') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <table class="table mb-0">
+            <thead>
+              <tr>
+                <th style="width:40%">Nhân Viên</th>
+                <th style="width:40%">Lark User ID</th>
+                <th style="width:20%;text-align:center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for emp in employees %}
+              <tr>
+                <td>
+                  <div style="font-weight:600;font-size:.82rem">{{ emp.name }}</div>
+                  <div style="font-size:.72rem;color:#94a3b8">{{ emp.department or '—' }}</div>
+                </td>
+                <td>
+                  <input type="text" name="lark_uid_{{ emp.id }}"
+                         class="form-control form-control-sm"
+                         style="font-size:.76rem;font-family:monospace"
+                         placeholder="ou_xxxxxxxx hoặc user ID"
+                         value="{{ emp.lark_user_id or '' }}">
+                </td>
+                <td style="text-align:center">
+                  {% if emp.lark_user_id %}
+                  <i class="bi bi-check-circle-fill" style="color:#16a34a" title="Đã mapping"></i>
+                  {% else %}
+                  <i class="bi bi-circle" style="color:#cbd5e1" title="Chưa mapping"></i>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="p-3 border-top">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-floppy me-1"></i>Lưu Mapping
+            </button>
+          </div>
+        </form>
+
+        <div class="px-3 pb-3">
+          <div style="font-size:.75rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;padding:10px 12px;color:#1e40af">
+            <i class="bi bi-lightbulb me-1"></i>
+            <strong>Cách tìm Lark User ID:</strong> Lark Admin → Members → click tên nhân viên →
+            URL sẽ có dạng <code style="font-size:.72rem">/...?id=ou_xxxxxxxx</code> — copy phần sau <code style="font-size:.72rem">id=</code>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync History -->
+    <div class="card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-clock-history" style="color:#6366f1"></i> Lịch Sử Sync
+      </div>
+      {% if sync_logs %}
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Thời gian</th>
+              <th>Ngày sync</th>
+              <th>Records</th>
+              <th>Bởi</th>
+              <th>Kết quả</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in sync_logs %}
+            <tr>
+              <td style="font-size:.75rem;color:#64748b;white-space:nowrap">{{ log.created_at[:16] }}</td>
+              <td style="font-size:.78rem">
+                {% if log.date_from == log.date_to %}
+                  {{ log.date_from }}
+                {% else %}
+                  {{ log.date_from }} → {{ log.date_to }}
+                {% endif %}
+              </td>
+              <td style="font-weight:600;color:#0f172a">{{ log.records_count }}</td>
+              <td style="font-size:.75rem;color:#64748b">{{ log.triggered_by }}</td>
+              <td>
+                {% if log.status == 'ok' %}
+                <span style="font-size:.7rem;background:#f0fdf4;color:#15803d;border:1px solid #86efac;padding:2px 8px;border-radius:99px;font-weight:600">OK</span>
+                {% else %}
+                <span style="font-size:.7rem;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;padding:2px 8px;border-radius:99px;font-weight:600">Lỗi</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body" style="text-align:center;padding:32px;color:#94a3b8;font-size:.83rem">
+        <i class="bi bi-clock-history" style="font-size:1.5rem;display:block;margin-bottom:8px"></i>
+        Chưa có lịch sử sync
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function testToken() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Đang kiểm tra...';
+  const el = document.getElementById('token-result');
+  el.style.display = 'none';
+  const csrf = document.querySelector('meta[name="csrf-token"]').content;
+  try {
+    const res  = await fetch('/lark/test-token', {method:'POST', headers:{'X-CSRFToken':csrf}});
+    const data = await res.json();
+    el.style.display = 'block';
+    if (data.ok) {
+      el.style.cssText = 'display:block;font-size:.8rem;padding:6px 10px;border-radius:6px;background:#f0fdf4;color:#15803d;border:1px solid #86efac';
+      el.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>' + data.message;
+    } else {
+      el.style.cssText = 'display:block;font-size:.8rem;padding:6px 10px;border-radius:6px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca';
+      el.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>' + data.error;
+    }
+  } catch(e) {
+    el.style.cssText = 'display:block;font-size:.8rem;padding:6px 10px;border-radius:6px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca';
+    el.innerHTML = 'Lỗi kết nối: ' + e.message;
+  }
+  btn.disabled = false; btn.innerHTML = '<i class="bi bi-plug me-1"></i>Kiểm tra kết nối';
+}
+
+async function runSync() {
+  const btn   = document.getElementById('syncBtn');
+  const logEl = document.getElementById('sync-log');
+  const pre   = document.getElementById('sync-log-text');
+  const res   = document.getElementById('sync-result');
+  const csrf  = document.querySelector('meta[name="csrf-token"]').content;
+  const from  = document.getElementById('syncFrom').value;
+  const to    = document.getElementById('syncTo').value;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang sync...';
+  logEl.style.display = 'block';
+  pre.textContent = '→ Đang kết nối Lark...\n';
+  res.textContent = '';
+
+  const form = new FormData();
+  form.append('date_from', from);
+  form.append('date_to', to);
+
+  try {
+    const resp = await fetch('/lark/sync', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrf},
+      body: form,
+    });
+    const data = await resp.json();
+
+    if (data.logs) {
+      pre.textContent = data.logs.join('\n');
+      pre.scrollTop = pre.scrollHeight;
+    }
+
+    if (data.ok) {
+      res.innerHTML = '<span style="color:#15803d"><i class="bi bi-check-circle-fill me-1"></i>' +
+        'Sync xong — <strong>' + data.processed + ' records</strong> đã được cập nhật</span>';
+    } else {
+      res.innerHTML = '<span style="color:#b91c1c"><i class="bi bi-x-circle-fill me-1"></i>' + data.error + '</span>';
+    }
+  } catch(e) {
+    pre.textContent += '\nLỗi: ' + e.message;
+    res.innerHTML = '<span style="color:#b91c1c">Lỗi kết nối: ' + e.message + '</span>';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Bắt Đầu Sync';
+}
+</script>
+{% endblock %}
