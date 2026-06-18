@@ -404,6 +404,13 @@ async function runUpdate() {
     return;
   }
 
+  if (data.uptodate) {
+    logLines.innerHTML += '<div class="log-line ok">✓ ' + data.message + '</div>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Đã là phiên bản mới nhất';
+    return;
+  }
+
   logLines.innerHTML += '<div class="log-line info">⟳ Khởi động lại server…</div>';
   showUpdateSuccess();
 }

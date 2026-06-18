@@ -1461,70 +1461,69 @@ def system_config_save():
     return redirect(url_for('system'))
 
 
+_GIT_EXE = r'C:\Program Files\Git\bin\git.exe'
+
+def _find_git():
+    import shutil
+    return shutil.which('git') or (_GIT_EXE if os.path.exists(_GIT_EXE) else None)
+
+
 @app.route('/system/update', methods=['POST'])
 @login_required
 def system_update():
     if session.get('role') != 'admin':
         return jsonify({'ok': False, 'error': 'Forbidden'}), 403
 
-    import json, urllib.request, urllib.error, zipfile, io, threading, time, sys
+    import subprocess, threading, time, sys
 
-    cfg = _load_sys_config()
-    repo   = cfg.get('github_repo', '').strip()
+    cfg    = _load_sys_config()
     branch = cfg.get('branch', 'main').strip() or 'main'
+    steps  = []
+    git    = _find_git()
 
-    if not repo:
-        return jsonify({'ok': False, 'error': 'Chưa cấu hình GitHub repo. Vào System → cài đặt trước.'})
+    if not git:
+        return jsonify({'ok': False, 'error': 'Git chưa được cài. Liên hệ admin.'})
 
-    url = f'https://github.com/{repo}/archive/refs/heads/{branch}.zip'
-    steps = []
-
+    # ── git fetch + pull ──────────────────────────────────────────
     try:
-        steps.append(f'Đang tải từ GitHub: {url}')
-        req = urllib.request.Request(url, headers={'User-Agent': 'RichHR-Updater/1.0'})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            zip_data = resp.read()
-        steps.append(f'Tải xong — {round(len(zip_data)/1024, 1)} KB')
-    except urllib.error.HTTPError as e:
-        return jsonify({'ok': False, 'error': f'Không tải được từ GitHub (HTTP {e.code}). Kiểm tra repo URL và quyền truy cập.', 'steps': steps})
+        steps.append('Đang kết nối GitHub…')
+
+        fetch = subprocess.run(
+            [git, 'fetch', 'origin', branch],
+            capture_output=True, text=True, cwd=_APP_DIR, timeout=30
+        )
+        if fetch.returncode != 0:
+            return jsonify({'ok': False, 'error': fetch.stderr.strip() or 'git fetch thất bại', 'steps': steps})
+        steps.append(f'Fetch OK từ origin/{branch}')
+
+        # Count incoming commits
+        log = subprocess.run(
+            [git, 'log', f'HEAD..origin/{branch}', '--oneline'],
+            capture_output=True, text=True, cwd=_APP_DIR
+        )
+        commits = [l for l in log.stdout.strip().splitlines() if l]
+        if not commits:
+            return jsonify({'ok': True, 'steps': steps,
+                            'message': 'Hệ thống đang chạy phiên bản mới nhất — không có gì để cập nhật.',
+                            'uptodate': True})
+
+        steps.append(f'{len(commits)} commit mới: ' + ' · '.join(c[:60] for c in commits[:3]))
+
+        pull = subprocess.run(
+            [git, '-c', 'core.autocrlf=false', 'pull', 'origin', branch, '--ff-only'],
+            capture_output=True, text=True, cwd=_APP_DIR, timeout=60
+        )
+        if pull.returncode != 0:
+            return jsonify({'ok': False, 'error': pull.stderr.strip() or 'git pull thất bại', 'steps': steps})
+
+        steps.append('Pull thành công — ' + (pull.stdout.strip().splitlines()[-1] if pull.stdout.strip() else 'OK'))
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': 'Timeout khi kết nối GitHub. Kiểm tra internet.', 'steps': steps})
     except Exception as e:
-        return jsonify({'ok': False, 'error': f'Lỗi kết nối: {str(e)}', 'steps': steps})
+        return jsonify({'ok': False, 'error': str(e), 'steps': steps})
 
-    # Extract — skip database, venv, uploads, __pycache__, system_config.json
-    SKIP_PREFIXES = ('venv/', 'uploads/', '__pycache__/', '.git/', '.impeccable/')
-    SKIP_SUFFIXES = ('.db', '.sqlite', '.pyc')
-    SKIP_FILES    = ('system_config.json',)
-    extracted = 0
-
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            for name in zf.namelist():
-                parts = name.split('/', 1)
-                if len(parts) < 2:
-                    continue
-                rel = parts[1]
-                if not rel:
-                    continue
-                if any(rel.startswith(p) for p in SKIP_PREFIXES):
-                    continue
-                if any(rel.endswith(s) for s in SKIP_SUFFIXES):
-                    continue
-                if rel in SKIP_FILES:
-                    continue
-                target = os.path.join(_APP_DIR, rel.replace('/', os.sep))
-                if name.endswith('/'):
-                    os.makedirs(target, exist_ok=True)
-                else:
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with zf.open(name) as src:
-                        with open(target, 'wb') as dst:
-                            dst.write(src.read())
-                    extracted += 1
-        steps.append(f'Giải nén xong — {extracted} files cập nhật')
-    except Exception as e:
-        return jsonify({'ok': False, 'error': f'Lỗi giải nén: {str(e)}', 'steps': steps})
-
-    # Save update timestamp and version
+    # ── Save timestamp & restart ──────────────────────────────────
     cfg['last_update'] = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
     _save_sys_config(cfg)
     steps.append('Đang khởi động lại server…')
