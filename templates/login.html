@@ -327,7 +327,14 @@
       </button>
     </form>
 
-    <div class="hint">
+    <div style="text-align:center;margin-top:14px">
+      <a href="{{ url_for('forgot_password') }}"
+         style="font-size:.78rem;color:#94a3b8;text-decoration:none;transition:color .15s"
+         onmouseover="this.style.color='#64748b'" onmouseout="this.style.color='#94a3b8'">
+        <i class="bi bi-question-circle me-1"></i>Quên mật khẩu?
+      </a>
+    </div>
+    <div class="hint" style="margin-top:12px">
       <i class="bi bi-shield-lock"></i>
       Hệ thống nội bộ — chỉ dành cho nhân viên được cấp quyền
     </div>

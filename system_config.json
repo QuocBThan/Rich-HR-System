@@ -2,5 +2,12 @@
   "github_repo": "QuocBThan/Rich-HR-System",
   "branch": "main",
   "version": "1.0.0",
-  "last_update": ""
+  "last_update": "",
+  "smtp_host": "",
+  "smtp_port": 587,
+  "smtp_user": "",
+  "smtp_pass": "",
+  "smtp_from_email": "",
+  "smtp_from_name": "RichHR System",
+  "smtp_tls": true
 }

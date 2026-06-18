@@ -119,6 +119,19 @@ def init_db():
             conn.execute("ALTER TABLE tickets ADD COLUMN leave_date_to TEXT DEFAULT ''")
         if 'days_count' not in ticket_cols:
             conn.execute("ALTER TABLE tickets ADD COLUMN days_count INTEGER DEFAULT 1")
+        user_cols2 = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if 'email' not in user_cols2:
+            conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''")
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                token      TEXT NOT NULL UNIQUE,
+                username   TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used       INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
 
 
 @contextmanager
@@ -463,9 +476,22 @@ def get_user_by_username(username):
 def get_all_users():
     with get_db() as conn:
         rows = conn.execute(
-            'SELECT id,username,display_name,role,department,employee_id,created_at FROM users ORDER BY username'
+            'SELECT id,username,display_name,role,department,employee_id,email,created_at FROM users ORDER BY username'
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_user_by_email(email):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE LOWER(email)=LOWER(?)", (email.strip(),)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_user_email(user_id, email):
+    with get_db() as conn:
+        conn.execute('UPDATE users SET email=? WHERE id=?', (email.strip(), user_id))
 
 
 def create_user(username, password_hash, display_name='', role='viewer', department='',
@@ -480,7 +506,32 @@ def create_user(username, password_hash, display_name='', role='viewer', departm
 
 def update_user_password(user_id, password_hash):
     with get_db() as conn:
-        conn.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash, user_id))
+        conn.execute(
+            'UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?',
+            (password_hash, user_id)
+        )
+
+
+def create_reset_token(token, username, expires_at):
+    with get_db() as conn:
+        conn.execute('DELETE FROM password_reset_tokens WHERE username=? AND used=0', (username,))
+        conn.execute(
+            'INSERT INTO password_reset_tokens (token, username, expires_at) VALUES (?,?,?)',
+            (token, username, expires_at)
+        )
+
+
+def get_reset_token(token):
+    with get_db() as conn:
+        row = conn.execute(
+            'SELECT * FROM password_reset_tokens WHERE token=? AND used=0', (token,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def consume_reset_token(token):
+    with get_db() as conn:
+        conn.execute('UPDATE password_reset_tokens SET used=1 WHERE token=?', (token,))
 
 
 def delete_user(user_id):

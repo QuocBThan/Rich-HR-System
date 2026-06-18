@@ -186,6 +186,94 @@
   </div>
 </div>
 
+<!-- ── SMTP / Email config ──────────────────────────────────── -->
+<div class="card mt-4">
+  <div class="card-header py-3 d-flex align-items-center gap-2">
+    <i class="bi bi-envelope-at" style="font-size:1.1rem;color:#7c3aed"></i>
+    <span style="font-weight:600">Cấu Hình Email (SMTP)</span>
+    <span class="ms-auto" style="font-size:.75rem;color:#94a3b8">Dùng cho tính năng Quên Mật Khẩu</span>
+    {% if cfg.smtp_host %}
+    <span class="badge-connected"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>Đã cấu hình</span>
+    {% else %}
+    <span class="badge-disconnected"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>Chưa cấu hình</span>
+    {% endif %}
+  </div>
+  <form method="POST" action="{{ url_for('system_smtp_save') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="card-body p-4">
+      <div class="row g-3">
+        <div class="col-md-8">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">SMTP Host</label>
+          <input type="text" name="smtp_host" class="form-control"
+                 placeholder="smtp.example.com" value="{{ cfg.smtp_host or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Port</label>
+          <input type="number" name="smtp_port" class="form-control"
+                 placeholder="587" value="{{ cfg.smtp_port or 587 }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Username (email đăng nhập)</label>
+          <input type="text" name="smtp_user" class="form-control"
+                 placeholder="user@example.com" value="{{ cfg.smtp_user or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Password / App Password</label>
+          <input type="password" name="smtp_pass" class="form-control"
+                 placeholder="{{ '••••••••' if cfg.smtp_pass else 'Nhập password' }}"
+                 autocomplete="new-password">
+          {% if cfg.smtp_pass %}<div class="form-text">Để trống để giữ nguyên password cũ</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Email hiển thị (From)</label>
+          <input type="email" name="smtp_from_email" class="form-control"
+                 placeholder="noreply@company.com" value="{{ cfg.smtp_from_email or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Tên hiển thị</label>
+          <input type="text" name="smtp_from_name" class="form-control"
+                 placeholder="RichHR System" value="{{ cfg.smtp_from_name or 'RichHR System' }}">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="smtp_tls" value="1" id="smtpTls"
+                   {{ 'checked' if cfg.smtp_tls != False }}>
+            <label class="form-check-label" for="smtpTls" style="font-size:.84rem;font-weight:600">TLS</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick presets -->
+      <div class="mt-3 d-flex gap-2 flex-wrap">
+        <span style="font-size:.75rem;color:#94a3b8;align-self:center">Preset nhanh:</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                onclick="setPreset('smtp.gmail.com',587,true)">Gmail</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                onclick="setPreset('smtp.office365.com',587,true)">Microsoft 365</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                onclick="setPreset('smtp.mailgun.org',587,true)">Mailgun</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                onclick="setPreset('smtp.sendgrid.net',587,true)">SendGrid</button>
+      </div>
+    </div>
+    <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 align-items-center">
+      <button type="submit" class="btn btn-outline-primary" style="font-weight:600">
+        <i class="bi bi-save me-1"></i>Lưu cấu hình SMTP
+      </button>
+      {% if cfg.smtp_host %}
+      <div class="d-flex gap-2 ms-auto align-items-center" id="test-area">
+        <input type="email" id="testEmail" class="form-control form-control-sm"
+               placeholder="Email nhận thử" style="width:200px">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="testSmtp()" style="font-weight:600">
+          <i class="bi bi-send me-1"></i>Gửi test
+        </button>
+        <span id="test-result" style="font-size:.8rem"></span>
+      </div>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -413,6 +501,26 @@ async function runUpdate() {
 
   logLines.innerHTML += '<div class="log-line info">⟳ Khởi động lại server…</div>';
   showUpdateSuccess();
+}
+
+function setPreset(host, port, tls) {
+  document.querySelector('[name=smtp_host]').value = host;
+  document.querySelector('[name=smtp_port]').value = port;
+  document.getElementById('smtpTls').checked = tls;
+}
+
+async function testSmtp() {
+  const email  = document.getElementById('testEmail').value.trim();
+  const result = document.getElementById('test-result');
+  if (!email) { result.textContent = 'Nhập email trước.'; result.style.color='#dc2626'; return; }
+  result.innerHTML = '<span style="opacity:.6">Đang gửi…</span>';
+  const fd = new FormData();
+  fd.append('csrf_token', '{{ csrf_token() }}');
+  fd.append('test_email', email);
+  const resp = await fetch('{{ url_for("system_smtp_test") }}', {method:'POST', body:fd});
+  const data = await resp.json();
+  result.textContent = data.ok ? '✓ ' + data.message : '✗ ' + data.error;
+  result.style.color = data.ok ? '#16a34a' : '#dc2626';
 }
 
 function showUpdateSuccess() {

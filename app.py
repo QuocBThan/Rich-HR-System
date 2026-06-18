@@ -1253,6 +1253,7 @@ def save_user():
     department   = request.form.get('department', '').strip()
     password     = request.form.get('password', '').strip()
     employee_id  = request.form.get('employee_id', '').strip()
+    email        = request.form.get('email', '').strip()
 
     if not username or not password:
         flash('Username và Password là bắt buộc.', 'error')
@@ -1265,6 +1266,10 @@ def save_user():
     try:
         db.create_user(username, generate_password_hash(password), display_name, role, department,
                        must_change_password=1, employee_id=employee_id)
+        if email:
+            user = db.get_user_by_username(username)
+            if user:
+                db.update_user_email(user['id'], email)
         db.log_audit(session['user_id'], session['username'], 'USER_CREATED',
                      f'Tạo user: {username} ({role})', request.remote_addr)
         flash(f'✅ Đã tạo user "{username}". Người dùng sẽ được yêu cầu đổi mật khẩu khi đăng nhập lần đầu.', 'success')
@@ -1416,6 +1421,36 @@ def audit_log():
 _SYSTEM_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'system_config.json')
 _APP_DIR            = os.path.dirname(os.path.abspath(__file__))
 
+
+# ── Email / SMTP ──────────────────────────────────────────────────────
+def _send_email(to_addr, subject, html_body):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    cfg  = _load_sys_config()
+    host = cfg.get('smtp_host', '').strip()
+    port = int(cfg.get('smtp_port', 587))
+    user = cfg.get('smtp_user', '').strip()
+    pw   = cfg.get('smtp_pass', '').strip()
+    from_email = cfg.get('smtp_from_email', '').strip() or user
+    from_name  = cfg.get('smtp_from_name', 'RichHR System').strip()
+    use_tls    = cfg.get('smtp_tls', True)
+
+    if not host or not user or not pw:
+        raise RuntimeError('SMTP chưa được cấu hình. Vào Hệ Thống → Cài đặt Email.')
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From']    = f'{from_name} <{from_email}>'
+    msg['To']      = to_addr
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+    with smtplib.SMTP(host, port, timeout=15) as server:
+        if use_tls:
+            server.starttls()
+        server.login(user, pw)
+        server.sendmail(from_email, [to_addr], msg.as_string())
+
 def _load_sys_config():
     import json
     try:
@@ -1428,6 +1463,91 @@ def _save_sys_config(cfg):
     import json
     with open(_SYSTEM_CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+# ── Forgot / Reset password ──────────────────────────────────────────
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'GET':
+        return render_template('forgot_password.html')
+
+    email = request.form.get('email', '').strip()
+    if not email:
+        return render_template('forgot_password.html', error='Vui lòng nhập email.')
+
+    user = db.get_user_by_email(email)
+    # Always show success — don't reveal whether email exists
+    if user:
+        import secrets as _sec
+        token      = _sec.token_urlsafe(48)
+        expires_at = (_dt.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+        db.create_reset_token(token, user['username'], expires_at)
+        reset_url  = url_for('reset_password', token=token, _external=True)
+        html_body  = f'''
+<div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+  <div style="background:#2563eb;border-radius:14px;padding:28px 32px;text-align:center;margin-bottom:24px">
+    <div style="font-size:2rem;margin-bottom:8px">🔐</div>
+    <h1 style="color:#fff;font-size:1.3rem;margin:0;font-weight:800">Đặt Lại Mật Khẩu</h1>
+    <p style="color:#bfdbfe;font-size:.85rem;margin:6px 0 0">RichHR Attendance System</p>
+  </div>
+  <p style="color:#334155;font-size:.95rem">Xin chào <strong>{user["display_name"] or user["username"]}</strong>,</p>
+  <p style="color:#475569;font-size:.9rem;line-height:1.6">
+    Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>{user["username"]}</strong>.
+    Nhấn nút bên dưới để tiếp tục (liên kết hết hạn sau <strong>1 giờ</strong>).
+  </p>
+  <div style="text-align:center;margin:28px 0">
+    <a href="{reset_url}"
+       style="background:#2563eb;color:#fff;text-decoration:none;padding:13px 32px;
+              border-radius:10px;font-weight:700;font-size:.95rem;display:inline-block">
+      Đặt Lại Mật Khẩu
+    </a>
+  </div>
+  <p style="color:#94a3b8;font-size:.78rem;line-height:1.6">
+    Nếu bạn không yêu cầu, hãy bỏ qua email này. Mật khẩu sẽ không thay đổi.<br>
+    Liên kết: <a href="{reset_url}" style="color:#2563eb">{reset_url}</a>
+  </p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p style="color:#cbd5e1;font-size:.75rem;text-align:center">Rich Payment Solutions · RichHR System</p>
+</div>'''
+        try:
+            _send_email(email, 'Đặt lại mật khẩu RichHR', html_body)
+        except Exception as e:
+            return render_template('forgot_password.html',
+                                   error=f'Không gửi được email: {e}. Liên hệ admin.')
+
+    return render_template('forgot_password.html', sent=True)
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    rec = db.get_reset_token(token)
+    if not rec:
+        return render_template('reset_password.html', invalid=True)
+
+    # Check expiry
+    from datetime import datetime as _dtt
+    if _dtt.strptime(rec['expires_at'], '%Y-%m-%d %H:%M:%S') < _dtt.now():
+        return render_template('reset_password.html', expired=True)
+
+    if request.method == 'GET':
+        return render_template('reset_password.html', token=token, username=rec['username'])
+
+    pw1 = request.form.get('password', '').strip()
+    pw2 = request.form.get('password2', '').strip()
+    if len(pw1) < 8:
+        return render_template('reset_password.html', token=token, username=rec['username'],
+                               error='Mật khẩu phải ít nhất 8 ký tự.')
+    if pw1 != pw2:
+        return render_template('reset_password.html', token=token, username=rec['username'],
+                               error='Hai mật khẩu không khớp.')
+
+    user = db.get_user_by_username(rec['username'])
+    if not user:
+        return render_template('reset_password.html', invalid=True)
+
+    db.update_user_password(user['id'], generate_password_hash(pw1))
+    db.consume_reset_token(token)
+    return render_template('reset_password.html', success=True)
 
 
 @app.route('/system')
@@ -1459,6 +1579,43 @@ def system_config_save():
     _save_sys_config(cfg)
     flash('✅ Đã lưu cấu hình GitHub.', 'success')
     return redirect(url_for('system'))
+
+
+@app.route('/system/smtp', methods=['POST'])
+@login_required
+def system_smtp_save():
+    if session.get('role') != 'admin':
+        return jsonify({'ok': False, 'error': 'Forbidden'}), 403
+    cfg = _load_sys_config()
+    cfg['smtp_host']       = request.form.get('smtp_host', '').strip()
+    cfg['smtp_port']       = int(request.form.get('smtp_port', 587) or 587)
+    cfg['smtp_user']       = request.form.get('smtp_user', '').strip()
+    cfg['smtp_from_email'] = request.form.get('smtp_from_email', '').strip()
+    cfg['smtp_from_name']  = request.form.get('smtp_from_name', 'RichHR System').strip()
+    cfg['smtp_tls']        = request.form.get('smtp_tls') == '1'
+    # Only overwrite password if provided
+    new_pass = request.form.get('smtp_pass', '').strip()
+    if new_pass:
+        cfg['smtp_pass'] = new_pass
+    _save_sys_config(cfg)
+    flash('✅ Đã lưu cấu hình SMTP.', 'success')
+    return redirect(url_for('system'))
+
+
+@app.route('/system/smtp-test', methods=['POST'])
+@login_required
+def system_smtp_test():
+    if session.get('role') != 'admin':
+        return jsonify({'ok': False, 'error': 'Forbidden'}), 403
+    to_addr = request.form.get('test_email', '').strip()
+    if not to_addr:
+        return jsonify({'ok': False, 'error': 'Nhập email nhận thử nghiệm.'})
+    try:
+        _send_email(to_addr, '✅ Test email — RichHR System',
+                    '<p style="font-family:sans-serif">SMTP hoạt động tốt! Hệ thống RichHR đã kết nối email thành công.</p>')
+        return jsonify({'ok': True, 'message': f'Đã gửi test email tới {to_addr}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 _GIT_EXE = r'C:\Program Files\Git\bin\git.exe'
