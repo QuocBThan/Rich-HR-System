@@ -267,7 +267,7 @@ function openEdit(u) {
   document.getElementById('edit-department').value       = u.department || '';
   document.getElementById('edit-password').value         = '';
   document.getElementById('editForm').action             = '/users/update/' + u.id;
-  new bootstrap.Modal(document.getElementById('editUserModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('editUserModal')).show();
 }
 
 function checkStrength(pw, barId, criteriaId) {
