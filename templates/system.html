@@ -1,0 +1,443 @@
+{% extends 'base.html' %}
+{% block title %}Hệ Thống — RichHR{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h4><i class="bi bi-arrow-repeat me-2"></i>Cập Nhật Hệ Thống</h4>
+    <div class="page-sub">Quản lý phiên bản · Cập nhật tự động từ GitHub</div>
+  </div>
+  <span class="version-badge">v{{ cfg.version }}</span>
+</div>
+
+<!-- ── Status cards ──────────────────────────────────── -->
+<div class="sys-cards mb-4">
+  <div class="sys-card">
+    <div class="sys-card-icon" style="background:#eff6ff;color:#2563eb"><i class="bi bi-python"></i></div>
+    <div>
+      <div class="sys-card-val">{{ py_version }}</div>
+      <div class="sys-card-lbl">Python</div>
+    </div>
+  </div>
+  <div class="sys-card">
+    <div class="sys-card-icon" style="background:#f0fdf4;color:#16a34a"><i class="bi bi-hdd"></i></div>
+    <div>
+      <div class="sys-card-val">{{ db_size }} KB</div>
+      <div class="sys-card-lbl">Database</div>
+    </div>
+  </div>
+  <div class="sys-card">
+    <div class="sys-card-icon" style="background:#faf5ff;color:#7c3aed"><i class="bi bi-display"></i></div>
+    <div>
+      <div class="sys-card-val" style="font-size:.88rem">{{ platform }}</div>
+      <div class="sys-card-lbl">Hệ điều hành</div>
+    </div>
+  </div>
+  <div class="sys-card">
+    <div class="sys-card-icon" style="background:#fff7ed;color:#ea580c"><i class="bi bi-clock-history"></i></div>
+    <div>
+      <div class="sys-card-val" style="font-size:.82rem">{{ cfg.last_update or 'Chưa có' }}</div>
+      <div class="sys-card-lbl">Lần cập nhật cuối</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- ── GitHub config ─────────────────────────────────── -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header py-3 d-flex align-items-center gap-2">
+        <i class="bi bi-github" style="font-size:1.1rem"></i>
+        <span style="font-weight:600">Kết Nối GitHub</span>
+        {% if cfg.github_repo %}
+        <span class="ms-auto badge-connected"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>Đã cấu hình</span>
+        {% else %}
+        <span class="ms-auto badge-disconnected"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>Chưa cấu hình</span>
+        {% endif %}
+      </div>
+      <form method="POST" action="{{ url_for('system_config_save') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="card-body p-4">
+
+          <div class="setup-steps mb-4">
+            <div class="setup-step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <div class="step-title">Tạo GitHub Repository</div>
+                <div class="step-desc">Tạo repo private trên github.com, ví dụ: <code>richhr-attendance</code></div>
+              </div>
+            </div>
+            <div class="setup-step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <div class="step-title">Upload code lên GitHub</div>
+                <div class="step-desc">Dùng <strong>GitHub Desktop</strong> (miễn phí) hoặc tải thẳng lên web github.com</div>
+              </div>
+            </div>
+            <div class="setup-step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <div class="step-title">Nhập URL repo bên dưới</div>
+                <div class="step-desc">Format: <code>username/richhr-attendance</code></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">
+              GitHub Repo <span class="text-danger">*</span>
+            </label>
+            <div class="input-group">
+              <span class="input-group-text" style="background:#f8fafc;color:#94a3b8;font-size:.82rem">github.com/</span>
+              <input type="text" name="github_repo" class="form-control"
+                     placeholder="username/repo-name"
+                     value="{{ cfg.github_repo }}"
+                     pattern="[^/]+/[^/]+"
+                     title="Format: username/repo-name">
+            </div>
+          </div>
+
+          <div class="mb-0">
+            <label class="form-label" style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#475569">Branch</label>
+            <input type="text" name="branch" class="form-control"
+                   value="{{ cfg.branch or 'main' }}" placeholder="main">
+          </div>
+        </div>
+        <div class="card-footer bg-white border-0 px-4 pb-4 pt-0">
+          <button type="submit" class="btn btn-outline-primary w-100" style="font-weight:600">
+            <i class="bi bi-save me-2"></i>Lưu Cấu Hình
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Update action ──────────────────────────────────── -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header py-3 d-flex align-items-center gap-2">
+        <i class="bi bi-cloud-download" style="font-size:1.1rem;color:#2563eb"></i>
+        <span style="font-weight:600">Cập Nhật</span>
+      </div>
+      <div class="card-body p-4 d-flex flex-column">
+
+        {% if cfg.github_repo %}
+        <!-- Repo info -->
+        <div class="repo-info-box mb-4">
+          <div class="repo-info-row">
+            <span class="repo-info-lbl">Repository</span>
+            <a href="https://github.com/{{ cfg.github_repo }}" target="_blank" class="repo-info-val">
+              <i class="bi bi-github me-1"></i>{{ cfg.github_repo }}
+              <i class="bi bi-box-arrow-up-right ms-1" style="font-size:.7rem;opacity:.5"></i>
+            </a>
+          </div>
+          <div class="repo-info-row">
+            <span class="repo-info-lbl">Branch</span>
+            <span class="repo-info-val"><i class="bi bi-git me-1"></i>{{ cfg.branch or 'main' }}</span>
+          </div>
+          <div class="repo-info-row">
+            <span class="repo-info-lbl">Phiên bản</span>
+            <span class="repo-info-val">v{{ cfg.version }}</span>
+          </div>
+        </div>
+
+        <!-- What gets updated -->
+        <div class="update-scope mb-4">
+          <div class="update-scope-title"><i class="bi bi-info-circle me-1"></i>Sẽ cập nhật</div>
+          <div class="scope-list">
+            <span class="scope-tag include"><i class="bi bi-check2 me-1"></i>Code (.py)</span>
+            <span class="scope-tag include"><i class="bi bi-check2 me-1"></i>Templates</span>
+            <span class="scope-tag include"><i class="bi bi-check2 me-1"></i>Static files</span>
+            <span class="scope-tag exclude"><i class="bi bi-x me-1"></i>Database</span>
+            <span class="scope-tag exclude"><i class="bi bi-x me-1"></i>Uploads</span>
+            <span class="scope-tag exclude"><i class="bi bi-x me-1"></i>system_config.json</span>
+          </div>
+        </div>
+
+        <!-- Progress log (hidden until update runs) -->
+        <div id="update-log" style="display:none" class="update-log mb-4">
+          <div class="update-log-title"><i class="bi bi-terminal me-2"></i>Log</div>
+          <div id="update-log-lines"></div>
+        </div>
+
+        <div class="mt-auto">
+          <button id="btn-update" class="btn btn-primary w-100 btn-update-main"
+                  onclick="runUpdate()">
+            <i class="bi bi-cloud-download me-2"></i>Cập Nhật Ngay
+          </button>
+          <div style="font-size:.75rem;color:#94a3b8;text-align:center;margin-top:10px">
+            <i class="bi bi-shield-check me-1"></i>
+            Server sẽ tự khởi động lại sau khi cập nhật · Database không bị ảnh hưởng
+          </div>
+        </div>
+
+        {% else %}
+        <!-- Not configured state -->
+        <div class="not-configured">
+          <div class="not-configured-icon"><i class="bi bi-github"></i></div>
+          <div class="not-configured-title">Chưa kết nối GitHub</div>
+          <div class="not-configured-desc">Cấu hình repo GitHub ở bên trái để bắt đầu sử dụng tính năng cập nhật tự động.</div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* ── Version badge ───────────────────────────────── */
+.version-badge {
+  font-family: monospace;
+  font-size: .82rem;
+  font-weight: 700;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 99px;
+  padding: 5px 14px;
+  letter-spacing: .5px;
+}
+
+/* ── Sys cards ───────────────────────────────────── */
+.sys-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 900px) { .sys-cards { grid-template-columns: repeat(2, 1fr); } }
+.sys-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--shadow-xs);
+}
+.sys-card-icon {
+  width: 42px; height: 42px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+.sys-card-val { font-size: .95rem; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.sys-card-lbl { font-size: .72rem; color: var(--ink-4); font-weight: 500; margin-top: 2px; }
+
+/* ── Connection badges ───────────────────────────── */
+.badge-connected {
+  font-size: .72rem; font-weight: 600;
+  background: #f0fdf4; color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 99px; padding: 3px 10px;
+  display: flex; align-items: center;
+}
+.badge-disconnected {
+  font-size: .72rem; font-weight: 600;
+  background: #fff7ed; color: #92400e;
+  border: 1px solid #fed7aa;
+  border-radius: 99px; padding: 3px 10px;
+  display: flex; align-items: center;
+}
+
+/* ── Setup steps ─────────────────────────────────── */
+.setup-steps { display: flex; flex-direction: column; gap: 12px; }
+.setup-step  { display: flex; gap: 12px; align-items: flex-start; }
+.step-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: .75rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.step-title { font-size: .84rem; font-weight: 600; color: var(--ink); }
+.step-desc  { font-size: .76rem; color: var(--ink-3); margin-top: 2px; line-height: 1.45; }
+.step-desc code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: .8em; }
+
+/* ── Repo info box ───────────────────────────────── */
+.repo-info-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.repo-info-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: .84rem;
+}
+.repo-info-row:last-child { border-bottom: none; }
+.repo-info-lbl { color: var(--ink-4); font-weight: 500; }
+.repo-info-val { color: var(--ink-2); font-weight: 600; text-decoration: none; }
+.repo-info-val:hover { color: var(--accent); }
+
+/* ── Scope tags ──────────────────────────────────── */
+.update-scope { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.update-scope-title { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--ink-3); margin-bottom: 10px; }
+.scope-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.scope-tag {
+  display: inline-flex; align-items: center;
+  font-size: .75rem; font-weight: 600;
+  border-radius: 6px; padding: 3px 9px;
+}
+.scope-tag.include { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.scope-tag.exclude { background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
+
+/* ── Update log ──────────────────────────────────── */
+.update-log {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-family: monospace;
+  font-size: .8rem;
+}
+.update-log-title { color: #64748b; font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; font-family: inherit; }
+.log-line { color: #94a3b8; line-height: 1.7; }
+.log-line.ok   { color: #4ade80; }
+.log-line.err  { color: #f87171; }
+.log-line.info { color: #60a5fa; }
+
+/* ── Update button ───────────────────────────────── */
+.btn-update-main {
+  padding: 13px;
+  font-size: .92rem;
+  font-weight: 700;
+  letter-spacing: .2px;
+  position: relative;
+  overflow: hidden;
+}
+.btn-update-main:disabled { opacity: .75; }
+
+/* ── Not configured empty state ─────────────────── */
+.not-configured {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--ink-4);
+}
+.not-configured-icon { font-size: 3rem; margin-bottom: 16px; opacity: .4; }
+.not-configured-title { font-size: 1rem; font-weight: 600; color: var(--ink-3); margin-bottom: 8px; }
+.not-configured-desc  { font-size: .84rem; line-height: 1.6; max-width: 300px; }
+
+/* ── Success overlay (reuse from tickets) ────────── */
+.update-success-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.update-success-bg {
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,.4); backdrop-filter: blur(4px);
+  animation: bgIn .3s ease both;
+}
+@keyframes bgIn { from{opacity:0} to{opacity:1} }
+.update-success-card {
+  background: #fff; border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.06);
+  padding: 44px 52px; text-align: center; max-width: 380px; width: 100%;
+  animation: popIn .45s cubic-bezier(.22,.68,0,1.2) both;
+}
+@keyframes popIn { from{opacity:0;transform:scale(.8) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
+.upd-check {
+  width: 76px; height: 76px; border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 22px;
+  box-shadow: 0 8px 24px rgba(34,197,94,.4);
+  animation: checkBounce .5s .2s cubic-bezier(.22,.68,0,1.4) both;
+}
+@keyframes checkBounce { from{transform:scale(0)} to{transform:scale(1)} }
+.upd-title { font-size: 1.2rem; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+.upd-sub   { font-size: .86rem; color: #64748b; line-height: 1.6; }
+.upd-countdown { font-size: .8rem; color: #94a3b8; margin-top: 14px; }
+</style>
+
+<script>
+async function runUpdate() {
+  const btn = document.getElementById('btn-update');
+  const log = document.getElementById('update-log');
+  const logLines = document.getElementById('update-log-lines');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Đang tải & cập nhật…';
+  log.style.display = '';
+  logLines.innerHTML = '<div class="log-line info">⟳ Bắt đầu quá trình cập nhật…</div>';
+
+  let resp, data;
+  try {
+    resp = await fetch('{{ url_for("system_update") }}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token() }}', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'csrf_token={{ csrf_token() }}'
+    });
+    data = await resp.json();
+  } catch (e) {
+    logLines.innerHTML += '<div class="log-line err">✗ Lỗi kết nối: ' + e.message + '</div>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-download me-2"></i>Thử lại';
+    return;
+  }
+
+  // Render steps
+  if (data.steps) {
+    logLines.innerHTML = '';
+    for (const s of data.steps) {
+      logLines.innerHTML += '<div class="log-line ok">✓ ' + s + '</div>';
+    }
+  }
+
+  if (!data.ok) {
+    logLines.innerHTML += '<div class="log-line err">✗ Lỗi: ' + data.error + '</div>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-download me-2"></i>Thử lại';
+    return;
+  }
+
+  logLines.innerHTML += '<div class="log-line info">⟳ Khởi động lại server…</div>';
+  showUpdateSuccess();
+}
+
+function showUpdateSuccess() {
+  const bg = document.createElement('div');
+  bg.className = 'update-success-bg';
+  document.body.appendChild(bg);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'update-success-overlay';
+  let secs = 5;
+  overlay.innerHTML = `
+    <div class="update-success-card">
+      <div class="upd-check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" width="38" height="38">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <div class="upd-title">Cập nhật thành công!</div>
+      <div class="upd-sub">Code mới đã được tải và giải nén.<br>Server đang khởi động lại…</div>
+      <div class="upd-countdown" id="reload-countdown">Tự động tải lại trang sau <strong>${secs}</strong> giây</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const iv = setInterval(() => {
+    secs--;
+    const cd = document.getElementById('reload-countdown');
+    if (cd) cd.innerHTML = 'Tự động tải lại trang sau <strong>' + secs + '</strong> giây';
+    if (secs <= 0) {
+      clearInterval(iv);
+      window.location.reload();
+    }
+  }, 1000);
+}
+</script>
+{% endblock %}

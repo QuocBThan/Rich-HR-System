@@ -1,0 +1,377 @@
+{% extends 'base.html' %}
+{% block title %}Monthly Report{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h4><i class="bi bi-file-earmark-bar-graph me-2"></i>Báo Cáo Nhân Sự</h4>
+    <div style="font-size:.82rem;color:#64748b;margin-top:2px">
+      Thống kê chấm công theo kỳ lương
+    </div>
+  </div>
+  {% if from_date or to_date %}
+  <a href="{{ url_for('export_report', from_date=from_date, to_date=to_date) }}" class="btn btn-outline-success btn-sm">
+    <i class="bi bi-download me-1"></i> Export CSV
+  </a>
+  {% endif %}
+</div>
+
+<!-- Filter bar -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <form method="GET" id="reportForm">
+      <div class="d-flex gap-3 align-items-end flex-wrap">
+        <!-- Quick select: Month + Period -->
+        <div>
+          <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">CHỌN NHANH</label>
+          <div class="d-flex gap-1">
+            <select id="quickMonth" class="form-select form-select-sm" style="min-width:140px">
+              <option value="">— Chọn tháng —</option>
+              {% for m in months %}
+              <option value="{{ m }}" {{ 'selected' if m == current_month }}>{{ m }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyQuickPeriod('1')">Kỳ 1</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyQuickPeriod('2')">Kỳ 2</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyQuickPeriod('')">Cả tháng</button>
+          </div>
+        </div>
+
+        <div style="width:1px;height:36px;background:#e2e8f0;margin:0 4px"></div>
+
+        <!-- Manual date range -->
+        <div>
+          <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">TỪ NGÀY</label>
+          <input type="date" name="from_date" id="fromDate" class="form-control form-control-sm"
+                 value="{{ from_date }}" style="min-width:140px">
+        </div>
+        <div>
+          <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">ĐẾN NGÀY</label>
+          <input type="date" name="to_date" id="toDate" class="form-control form-control-sm"
+                 value="{{ to_date }}" style="min-width:140px">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-funnel me-1"></i>Xem Báo Cáo
+        </button>
+        {% if from_date or to_date %}
+        <a href="{{ url_for('report') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x me-1"></i>Xóa lọc
+        </a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if from_date or to_date %}
+    <div class="mt-2" style="font-size:.78rem;color:#64748b">
+      Đang xem từ <strong>{{ from_date or '...' }}</strong> đến <strong>{{ to_date or '...' }}</strong>
+      — {{ report | length }} nhân viên
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if report %}
+{% set total_paid    = report | sum(attribute='total_paid_hrs') %}
+{% set total_present = report | sum(attribute='present_days') %}
+{% set total_late    = report | sum(attribute='late_in_days') %}
+{% set total_miss_in = report | sum(attribute='missing_in_days') %}
+{% set total_miss_out= report | sum(attribute='missing_out_days') %}
+{% set total_unres   = report | sum(attribute='unresolved_count') %}
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col">
+    <div class="card p-3 text-center">
+      <div style="font-size:1.4rem;font-weight:700;color:#0f172a">{{ report|length }}</div>
+      <div style="font-size:.72rem;color:#64748b">Nhân Viên</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card p-3 text-center">
+      <div style="font-size:1.4rem;font-weight:700;color:#16a34a">{{ total_paid | round(1) }}h</div>
+      <div style="font-size:.72rem;color:#64748b">Tổng Paid Hrs</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card p-3 text-center">
+      <div style="font-size:1.4rem;font-weight:700;color:#c2410c">{{ total_late }}</div>
+      <div style="font-size:.72rem;color:#64748b">Đi Trễ</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card p-3 text-center">
+      <div style="font-size:1.4rem;font-weight:700;color:#7c3aed">{{ total_miss_in + total_miss_out }}</div>
+      <div style="font-size:.72rem;color:#64748b">Missing Clock</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card p-3 text-center {{ 'border-danger' if total_unres else '' }}"
+         style="{{ 'background:#fef2f2' if total_unres else '' }}">
+      <div style="font-size:1.4rem;font-weight:700;color:{{ '#ef4444' if total_unres else '#64748b' }}">{{ total_unres }}</div>
+      <div style="font-size:.72rem;color:#64748b">Chưa Xử Lý</div>
+    </div>
+  </div>
+</div>
+
+<!-- Report table -->
+<div class="card">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-people me-2"></i>Chi Tiết Theo Nhân Viên</span>
+    <span style="font-size:.75rem;color:#94a3b8">Nhấn vào tên nhân viên để xem chi tiết bất thường</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.82rem">
+      <thead style="background:#f8fafc">
+        <tr>
+          <th style="min-width:150px">Nhân Viên</th>
+          <th>Bộ Phận</th>
+          <th class="text-center" title="Tổng số ngày có records">Ngày<br><small style="font-weight:400;color:#94a3b8">records</small></th>
+          <th class="text-center" title="Ngày có mặt (có ít nhất clock-in)">Có Mặt</th>
+          <th class="text-center" style="color:#16a34a;min-width:75px">Paid Hrs</th>
+          <th class="text-center" style="color:#a16207" title="Ngày OT hoặc clock out muộn">OT</th>
+          <th class="text-center" style="color:#1d4ed8" title="Ngày thiếu giờ">Thiếu Giờ</th>
+          <th class="text-center" style="color:#c2410c" title="Số lần đi trễ">Đi Trễ</th>
+          <th class="text-center" style="color:#7c3aed" title="Missing Clock In">M.In</th>
+          <th class="text-center" style="color:#7c3aed" title="Missing Clock Out">M.Out</th>
+          <th class="text-center" style="color:#dc2626" title="Nghỉ không phép">NKP</th>
+          <th class="text-center" style="color:#16a34a" title="Nghỉ phép năm / có phép">NPN</th>
+          <th class="text-center" title="Chưa xử lý">Tồn</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in report %}
+        {% set has_issue = r.unresolved_count > 0 %}
+        <tr style="{{ 'background:#fffbeb' if has_issue else '' }}">
+          <td>
+            <a href="#" class="emp-detail-link fw-semibold text-decoration-none"
+               data-emp-id="{{ r.employee_id }}"
+               data-emp-name="{{ r.employee_name }}"
+               data-from="{{ from_date }}"
+               data-to="{{ to_date }}">
+              {{ r.employee_name }}
+            </a>
+            {% if r.employee_id %}<br><small style="color:#94a3b8">{{ r.employee_id }}</small>{% endif %}
+          </td>
+          <td style="color:#475569">{{ r.department or '—' }}</td>
+          <td class="text-center">{{ r.total_days }}</td>
+          <td class="text-center"><span style="color:#16a34a;font-weight:600">{{ r.present_days }}</span></td>
+          <td class="text-center"><strong style="color:#1d4ed8">{{ r.total_paid_hrs }}h</strong></td>
+          <td class="text-center">
+            {% if r.overtime_days %}<span class="badge badge-ot">{{ r.overtime_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.under_hrs_days %}<span class="badge badge-under">{{ r.under_hrs_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.late_in_days %}<span style="background:#ffedd5;color:#9a3412;border-radius:99px;padding:1px 8px;font-size:.72rem;font-weight:600">{{ r.late_in_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.missing_in_days %}<span class="badge badge-missing">{{ r.missing_in_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.missing_out_days %}<span class="badge badge-missing">{{ r.missing_out_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.absent_unpaid_days %}<span style="background:#fee2e2;color:#991b1b;border-radius:99px;padding:1px 8px;font-size:.72rem;font-weight:600">{{ r.absent_unpaid_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.absent_paid_days %}<span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.72rem;font-weight:600">{{ r.absent_paid_days }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if has_issue %}
+            <span style="background:#fef2f2;color:#b91c1c;border-radius:99px;padding:1px 8px;font-size:.72rem;font-weight:600">
+              ⚠ {{ r.unresolved_count }}
+            </span>
+            {% else %}
+            <span style="color:#16a34a;font-size:.78rem">✓</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f8fafc;font-weight:700;font-size:.8rem">
+          <td colspan="2">TỔNG CỘNG</td>
+          <td class="text-center">{{ report | sum(attribute='total_days') }}</td>
+          <td class="text-center" style="color:#16a34a">{{ report | sum(attribute='present_days') }}</td>
+          <td class="text-center" style="color:#1d4ed8">{{ report | sum(attribute='total_paid_hrs') | round(1) }}h</td>
+          <td class="text-center">{{ report | sum(attribute='overtime_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='under_hrs_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='late_in_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='missing_in_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='missing_out_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='absent_unpaid_days') or '—' }}</td>
+          <td class="text-center">{{ report | sum(attribute='absent_paid_days') or '—' }}</td>
+          <td class="text-center">{{ total_unres or '—' }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="card p-5 text-center" style="color:#94a3b8">
+  <i class="bi bi-bar-chart" style="font-size:2rem"></i>
+  <p class="mt-3">Chọn khoảng thời gian ở trên để xem báo cáo.</p>
+</div>
+{% endif %}
+
+<!-- Employee Detail Modal -->
+<div class="modal fade" id="empDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+        <div>
+          <h5 class="modal-title mb-0" id="empDetailTitle">Chi tiết nhân viên</h5>
+          <div id="empDetailSub" style="font-size:.78rem;color:#64748b;margin-top:2px"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="empDetailBody">
+        <div class="text-center p-5" style="color:#94a3b8">
+          <div class="spinner-border spinner-border-sm me-2"></div> Đang tải...
+        </div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Quick-select month + period → fill date inputs
+function applyQuickPeriod(period) {
+  const month = document.getElementById('quickMonth').value;
+  if (!month) { alert('Hãy chọn tháng trước.'); return; }
+  const [yr, mo] = month.split('-').map(Number);
+  const lastDay  = new Date(yr, mo, 0).getDate();
+  let from, to;
+  if (period === '1')      { from = `${month}-01`; to = `${month}-15`; }
+  else if (period === '2') { from = `${month}-16`; to = `${month}-${String(lastDay).padStart(2,'0')}`; }
+  else                     { from = `${month}-01`; to = `${month}-${String(lastDay).padStart(2,'0')}`; }
+  document.getElementById('fromDate').value = from;
+  document.getElementById('toDate').value   = to;
+  document.getElementById('reportForm').submit();
+}
+
+// Click employee name → load detail modal
+document.querySelectorAll('.emp-detail-link').forEach(link => {
+  link.addEventListener('click', function(e) {
+    e.preventDefault();
+    const empId   = this.dataset.empId;
+    const empName = this.dataset.empName;
+    const from    = this.dataset.from;
+    const to      = this.dataset.to;
+
+    document.getElementById('empDetailTitle').textContent = empName;
+    document.getElementById('empDetailSub').textContent =
+      `Các records bất thường${from ? ' từ ' + from : ''}${to ? ' đến ' + to : ''}`;
+    document.getElementById('empDetailBody').innerHTML =
+      '<div class="text-center p-5" style="color:#94a3b8"><div class="spinner-border spinner-border-sm me-2"></div> Đang tải...</div>';
+
+    const modal = new bootstrap.Modal(document.getElementById('empDetailModal'));
+    modal.show();
+
+    let url = `/report/employee/${encodeURIComponent(empId)}`;
+    const params = [];
+    if (from) params.push('from_date=' + encodeURIComponent(from));
+    if (to)   params.push('to_date='   + encodeURIComponent(to));
+    if (params.length) url += '?' + params.join('&');
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) { document.getElementById('empDetailBody').innerHTML = '<div class="p-4 text-danger">Lỗi khi tải dữ liệu.</div>'; return; }
+        renderEmpDetail(data.records);
+      })
+      .catch(() => {
+        document.getElementById('empDetailBody').innerHTML = '<div class="p-4 text-danger">Không thể kết nối.</div>';
+      });
+  });
+});
+
+function statusColor(st) {
+  if (!st) return '#64748b';
+  if (st.includes('OK'))       return '#16a34a';
+  if (st.includes('Missing'))  return '#dc2626';
+  if (st.includes('Under'))    return '#dc2626';
+  if (st.includes('Overtime')) return '#d97706';
+  if (st.includes('Late'))     return '#ea580c';
+  if (st.includes('Manual'))   return '#d97706';
+  return '#64748b';
+}
+
+function statusBg(st) {
+  if (!st) return '';
+  if (st.includes('OK'))       return '#f0fdf4';
+  if (st.includes('Missing'))  return '#fef2f2';
+  if (st.includes('Under'))    return '#fef2f2';
+  if (st.includes('Overtime')) return '#fffbeb';
+  if (st.includes('Late'))     return '#fff7ed';
+  if (st.includes('Manual'))   return '#fffbeb';
+  return '';
+}
+
+function renderEmpDetail(records) {
+  const body = document.getElementById('empDetailBody');
+  if (!records || !records.length) {
+    body.innerHTML = `<div class="p-5 text-center" style="color:#16a34a">
+      <i class="bi bi-check-circle" style="font-size:2rem"></i>
+      <p class="mt-3">Không có records bất thường trong kỳ này. Tất cả OK!</p>
+    </div>`;
+    return;
+  }
+
+  let html = `<div class="table-responsive"><table class="table mb-0" style="font-size:.82rem">
+    <thead style="background:#f8fafc;position:sticky;top:0">
+      <tr>
+        <th>Ngày</th>
+        <th>Trạng Thái</th>
+        <th>Clock In</th>
+        <th>Clock Out</th>
+        <th>Paid Hrs</th>
+        <th>Ghi Chú</th>
+        <th>Xử Lý</th>
+      </tr>
+    </thead><tbody>`;
+
+  records.forEach(r => {
+    const resolved  = r.action_taken && r.action_taken.trim();
+    const bg        = statusBg(r.status);
+    const resolvedBadge = resolved
+      ? `<span style="background:#dcfce7;color:#166534;border-radius:99px;padding:2px 8px;font-size:.7rem;font-weight:600">✓ Đã xử lý</span>`
+      : `<span style="background:#fef2f2;color:#b91c1c;border-radius:99px;padding:2px 8px;font-size:.7rem;font-weight:600">Chưa xử lý</span>`;
+
+    html += `<tr style="background:${bg}">
+      <td style="font-weight:600;white-space:nowrap">${r.date}</td>
+      <td><span style="color:${statusColor(r.status)};font-size:.78rem">${r.status}</span></td>
+      <td style="color:#1d4ed8;font-weight:600">${r.clock_in || '—'}</td>
+      <td style="color:#dc2626;font-weight:600">${r.clock_out || '—'}</td>
+      <td class="text-center"><strong>${r.paid_hrs != null ? r.paid_hrs + 'h' : '—'}</strong></td>
+      <td style="color:#64748b;max-width:200px;white-space:normal;font-size:.75rem">${r.notes || ''}</td>
+      <td>
+        ${resolvedBadge}
+        ${resolved ? `<div style="font-size:.72rem;color:#475569;margin-top:3px;max-width:200px;white-space:normal">${r.action_taken}</div>` : ''}
+        ${r.approved_by ? `<div style="font-size:.68rem;color:#94a3b8">${r.approved_by}${r.approved_at ? ' · ' + r.approved_at.slice(0,10) : ''}</div>` : ''}
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+
+  const resolved  = records.filter(r => r.action_taken && r.action_taken.trim()).length;
+  const unresolved = records.length - resolved;
+  html = `<div style="padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:.78rem;color:#475569">
+    ${records.length} records bất thường —
+    <span style="color:#16a34a;font-weight:600">${resolved} đã xử lý</span>
+    ${unresolved ? `, <span style="color:#ef4444;font-weight:600">${unresolved} chưa xử lý</span>` : ''}
+  </div>` + html;
+
+  body.innerHTML = html;
+}
+</script>
+{% endblock %}

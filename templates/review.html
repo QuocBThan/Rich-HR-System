@@ -1,0 +1,586 @@
+{% extends 'base.html' %}
+{% block title %}Review Queue{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h4><i class="bi bi-exclamation-triangle me-2"></i>Review Queue
+      <span class="badge bg-danger ms-2" id="review-header-badge" style="font-size:.75rem">{{ unresolved_count }}</span>
+    </h4>
+    <div id="review-subtitle" style="font-size:.78rem;color:#64748b;margin-top:2px">
+      {{ unresolved_count }} chưa xử lý / {{ records|length }} tổng case
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <form method="GET" class="d-flex gap-2 align-items-end flex-wrap">
+      <div>
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">THÁNG</label>
+        <select name="month" class="form-select form-select-sm" style="min-width:150px">
+          <option value="">Tất cả tháng</option>
+          {% for m in months %}
+          <option value="{{ m }}" {{ 'selected' if m == filters.get('month') }}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">NHÂN VIÊN</label>
+        <select name="employee_id" class="form-select form-select-sm" style="min-width:180px">
+          <option value="">Tất cả nhân viên</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}" {{ 'selected' if e.id == filters.get('employee_id') }}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">KỲ LƯƠNG</label>
+        <select name="period" class="form-select form-select-sm" style="min-width:140px">
+          <option value="">Cả tháng</option>
+          <option value="1" {{ 'selected' if filters.get('period') == '1' }}>Kỳ 1 (1–15)</option>
+          <option value="2" {{ 'selected' if filters.get('period') == '2' }}>Kỳ 2 (16–31)</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Lọc</button>
+      {% if filters %}
+      <a href="{{ url_for('review') }}" class="btn btn-outline-secondary btn-sm">Xóa bộ lọc</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if not records %}
+<div class="card p-5 text-center">
+  <div style="color:#16a34a">
+    <i class="bi bi-check-circle" style="font-size:2.5rem"></i>
+    <p class="mt-3 mb-0 fw-600">Không có case nào cần review!</p>
+  </div>
+</div>
+{% else %}
+
+<!-- Legend -->
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <span class="badge badge-notmatch badge-status">❌ Name Not Matched</span>
+  <span class="badge badge-missing badge-status">🔴 Missing Clock</span>
+  <span class="badge badge-under badge-status">🔴 Under Hours</span>
+  <span class="badge badge-ot badge-status">🟡 Overtime</span>
+  <span class="badge badge-late badge-status">🟡 Late Clock Out</span>
+  <span class="badge badge-latein badge-status">🟠 Late Clock In</span>
+  <span class="badge badge-manual badge-status">⚠️ Manual Review</span>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Name</th>
+          <th>Lark Name</th>
+          <th>Clock In</th>
+          <th>Clock Out</th>
+          <th>Net Hrs</th>
+          <th>Paid Hrs</th>
+          <th>Case Type</th>
+          <th>Notes</th>
+          <th style="min-width:280px">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr class="{{ status_row_class(r.status) }}" id="row-{{ r.id }}">
+          <td>{{ r.date }}</td>
+          <td><strong>{{ r.employee_name or '—' }}</strong></td>
+          <td style="color:#64748b;font-size:.82rem">{{ r.lark_name }}</td>
+          <td>{{ r.clock_in or '—' }}</td>
+          <td id="co-{{ r.id }}">{{ r.clock_out or '—' }}</td>
+          <td id="net-{{ r.id }}">{{ r.net_hrs or '—' }}</td>
+          <td><strong id="paid-{{ r.id }}">{{ r.paid_hrs or '—' }}</strong></td>
+          <td>
+            <span class="badge {{ status_badge_class(r.status) }} badge-status" id="badge-{{ r.id }}">{{ r.status }}</span>
+          </td>
+          <td style="max-width:200px;white-space:normal;font-size:.78rem;color:#64748b">
+            {{ r.notes }}
+          </td>
+          <td>
+            {% if r.action_taken %}
+            <div style="font-size:.78rem" id="done-block-{{ r.id }}">
+              <span class="badge bg-success">✓ Done</span>
+              <span style="color:#64748b"> by {{ r.approved_by }}</span>
+              <div style="color:#94a3b8;margin-top:2px">{{ r.action_taken }}</div>
+              {# Allow re-correction if clock_out was never actually entered #}
+              {% if 'Missing Clock Out' in r.status and not r.clock_out %}
+              <button class="btn btn-outline-warning btn-sm mt-2" style="font-size:.72rem"
+                      onclick="openCoReEdit({{ r.id }}, '{{ r.employee_id }}')">
+                <i class="bi bi-pencil me-1"></i>Nhập Clock Out
+              </button>
+              {% endif %}
+            </div>
+            {# Re-edit form (hidden until button clicked) #}
+            {% if 'Missing Clock Out' in r.status and not r.clock_out %}
+            {% set emp = emp_map.get(r.employee_id, {}) %}
+            {% set st  = emp.get('start_time', '09:30') %}
+            {% set default_co = '18:30' if st <= '09:30' else '19:00' %}
+            <div id="re-edit-{{ r.id }}" class="re-edit-form" data-id="{{ r.id }}" style="display:none;margin-top:6px">
+              <div style="font-size:.72rem;color:#64748b;margin-bottom:4px">Nhập giờ Clock Out:</div>
+              <div class="d-flex gap-1 mb-1 flex-wrap">
+                <button type="button" class="btn btn-outline-secondary btn-sm preset-co-re"
+                        data-time="18:30" data-id="{{ r.id }}"
+                        style="font-size:.73rem;padding:2px 8px{{ ';background:#eff6ff;border-color:#3b82f6;font-weight:700' if default_co == '18:30' else '' }}">
+                  18:30 <small style="color:#94a3b8">(ca 9:30)</small>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm preset-co-re"
+                        data-time="19:00" data-id="{{ r.id }}"
+                        style="font-size:.73rem;padding:2px 8px{{ ';background:#eff6ff;border-color:#3b82f6;font-weight:700' if default_co == '19:00' else '' }}">
+                  19:00 <small style="color:#94a3b8">(ca 10:00)</small>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        onclick="toggleReCustom({{ r.id }})"
+                        style="font-size:.73rem;padding:2px 8px">
+                  <i class="bi bi-pencil"></i> Tùy chỉnh
+                </button>
+              </div>
+              <div class="input-group input-group-sm mb-1 re-custom-row" id="re-custom-{{ r.id }}" style="display:none">
+                <span class="input-group-text" style="font-size:.75rem">Clock Out</span>
+                <input type="text" class="form-control re-co-custom" placeholder="HH:MM" maxlength="5" style="width:72px">
+              </div>
+              <input type="hidden" class="re-co-final" value="{{ default_co }}">
+              <input type="text" class="form-control form-control-sm re-co-note mb-1"
+                     placeholder="Ghi chú..." style="font-size:.78rem">
+              <div class="d-flex gap-1">
+                <button onclick="submitReEdit({{ r.id }})" class="btn btn-warning btn-sm">
+                  <i class="bi bi-clock-history me-1"></i>Lưu Clock Out
+                </button>
+                <button onclick="cancelReEdit({{ r.id }})" class="btn btn-outline-secondary btn-sm">Hủy</button>
+              </div>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="review-form" data-id="{{ r.id }}">
+
+              {# ── MISSING CLOCK OUT ── #}
+              {% if 'Missing Clock Out' in r.status %}
+              {% set emp = emp_map.get(r.employee_id, {}) %}
+              {% set st  = emp.get('start_time', '09:30') %}
+              {% set default_co = '18:30' if st <= '09:30' else '19:00' %}
+              <div style="font-size:.72rem;color:#64748b;margin-bottom:4px">
+                Chọn giờ Clock Out:
+              </div>
+              <div class="d-flex gap-1 mb-1 flex-wrap">
+                <button type="button" class="btn btn-outline-secondary btn-sm preset-co"
+                        data-time="18:30" data-id="{{ r.id }}"
+                        style="font-size:.73rem;padding:2px 8px{{ ';background:#eff6ff;border-color:#3b82f6;font-weight:700' if default_co == '18:30' else '' }}">
+                  18:30 <small style="color:#94a3b8">(ca 9:30)</small>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm preset-co"
+                        data-time="19:00" data-id="{{ r.id }}"
+                        style="font-size:.73rem;padding:2px 8px{{ ';background:#eff6ff;border-color:#3b82f6;font-weight:700' if default_co == '19:00' else '' }}">
+                  19:00 <small style="color:#94a3b8">(ca 10:00)</small>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        onclick="toggleCustomCo({{ r.id }})"
+                        style="font-size:.73rem;padding:2px 8px">
+                  <i class="bi bi-pencil"></i> Tùy chỉnh
+                </button>
+              </div>
+              <div class="input-group input-group-sm mb-1 custom-co-row" id="custom-co-{{ r.id }}" style="display:none">
+                <span class="input-group-text" style="font-size:.75rem">Clock Out</span>
+                <input type="text" class="form-control clockout-input" placeholder="HH:MM"
+                       maxlength="5" style="width:72px">
+              </div>
+              <!-- Hidden input that holds the resolved clock-out time -->
+              <input type="hidden" class="clockout-input-final" value="{{ default_co }}">
+              <input type="text" class="form-control form-control-sm action-input mb-1"
+                     placeholder="Ghi chú..." style="font-size:.78rem">
+              <div class="d-flex gap-1">
+                <input type="text" class="form-control form-control-sm approver-input"
+                       value="{{ current_user }}" style="font-size:.78rem;flex:1">
+                <button onclick="submitClockOut({{ r.id }})" class="btn btn-warning btn-sm"
+                        title="Lưu Clock Out & tính lại giờ">
+                  <i class="bi bi-clock-history me-1"></i>Lưu
+                </button>
+              </div>
+
+              {# ── OVERTIME ── #}
+              {% elif 'Overtime' in r.status or 'After 20' in r.status %}
+              <div class="input-group input-group-sm mb-1">
+                <span class="input-group-text" style="font-size:.75rem">Paid Hrs</span>
+                <input type="number" class="form-control paid-input" value="{{ r.paid_hrs or 8 }}"
+                       step="0.5" min="0" max="16" style="width:70px">
+              </div>
+              <input type="text" class="form-control form-control-sm action-input mb-1"
+                     placeholder="Ghi chú / hành động..." style="font-size:.78rem">
+              <div class="d-flex gap-1">
+                <input type="text" class="form-control form-control-sm approver-input"
+                       value="{{ current_user }}" style="font-size:.78rem;flex:1">
+                <button onclick="submitReview({{ r.id }})" class="btn btn-success btn-sm">
+                  <i class="bi bi-check-lg me-1"></i>Duyệt
+                </button>
+              </div>
+
+              {# ── LATE CLOCK IN ── #}
+              {% elif 'Late' in r.status and 'Out' not in r.status %}
+              <div style="font-size:.72rem;color:#64748b;margin-bottom:4px">
+                {% set emp = emp_map.get(r.employee_id, {}) %}
+                Ca bắt đầu: <strong>{{ emp.get('start_time', '09:30') }}</strong>
+                · Vào lúc: <strong style="color:#ea580c">{{ r.clock_in }}</strong>
+              </div>
+              <input type="text" class="form-control form-control-sm action-input mb-1"
+                     placeholder="Lý do đi trễ (bỏ trống nếu không có)..." style="font-size:.78rem">
+              <div class="d-flex gap-1">
+                <input type="text" class="form-control form-control-sm approver-input"
+                       value="{{ current_user }}" style="font-size:.78rem;flex:1">
+                <button onclick="submitLateIn({{ r.id }}, true)"
+                        class="btn btn-success btn-sm" title="Có lý do → Duyệt">
+                  <i class="bi bi-check-lg me-1"></i>Approve
+                </button>
+                <button onclick="submitLateIn({{ r.id }}, false)"
+                        class="btn btn-warning btn-sm" title="Không có lý do → Giữ Late">
+                  <i class="bi bi-exclamation me-1"></i>Giữ Late
+                </button>
+              </div>
+
+              {# ── MANUAL (cả 2 thiếu) → chọn loại nghỉ ── #}
+              {% elif 'Manual' in r.status %}
+              <select class="form-select form-select-sm action-input mb-1" style="font-size:.78rem">
+                <option value="">— Chọn lý do —</option>
+                <option value="Nghỉ không phép">🔴 Nghỉ không phép</option>
+                <option value="Nghỉ phép năm">🟢 Nghỉ phép năm</option>
+                <option value="Nghỉ có phép">🟡 Nghỉ có phép (khác)</option>
+                <option value="Công tác">🔵 Công tác / Out-of-office</option>
+                <option value="Manual Review">⚠️ Giữ Manual Review</option>
+              </select>
+              <div class="d-flex gap-1">
+                <input type="text" class="form-control form-control-sm approver-input"
+                       value="{{ current_user }}" style="font-size:.78rem;flex:1">
+                <button onclick="submitReview({{ r.id }})" class="btn btn-success btn-sm">
+                  <i class="bi bi-check-lg me-1"></i>Duyệt
+                </button>
+              </div>
+
+              {# ── TẤT CẢ CÁC LOẠI KHÁC ── #}
+              {% else %}
+              <input type="text" class="form-control form-control-sm action-input mb-1"
+                     placeholder="Ghi chú / hành động..." style="font-size:.78rem">
+              <div class="d-flex gap-1">
+                <input type="text" class="form-control form-control-sm approver-input"
+                       value="{{ current_user }}" style="font-size:.78rem;flex:1">
+                <button onclick="submitReview({{ r.id }})" class="btn btn-success btn-sm">
+                  <i class="bi bi-check-lg me-1"></i>Duyệt
+                </button>
+              </div>
+              {% endif %}
+
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Preset clock-out buttons ──
+document.querySelectorAll('.preset-co').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id   = this.dataset.id;
+    const time = this.dataset.time;
+    const form = document.querySelector(`.review-form[data-id="${id}"]`);
+
+    // Update hidden final value
+    form.querySelector('.clockout-input-final').value = time;
+
+    // Highlight active preset
+    form.querySelectorAll('.preset-co').forEach(b => {
+      b.style.background    = '';
+      b.style.borderColor   = '';
+      b.style.fontWeight    = '';
+    });
+    this.style.background  = '#eff6ff';
+    this.style.borderColor = '#3b82f6';
+    this.style.fontWeight  = '700';
+
+    // Hide custom row and clear it
+    const customRow = document.getElementById(`custom-co-${id}`);
+    if (customRow) {
+      customRow.style.display = 'none';
+      const customInput = customRow.querySelector('.clockout-input');
+      if (customInput) customInput.value = '';
+    }
+  });
+});
+
+function toggleCustomCo(id) {
+  const row = document.getElementById(`custom-co-${id}`);
+  if (!row) return;
+  const visible = row.style.display !== 'none';
+  row.style.display = visible ? 'none' : 'flex';
+  if (!visible) {
+    const input = row.querySelector('.clockout-input');
+    if (input) { input.focus(); }
+    // Clear preset highlight when switching to custom
+    const form = document.querySelector(`.review-form[data-id="${id}"]`);
+    form.querySelectorAll('.preset-co').forEach(b => {
+      b.style.background = ''; b.style.borderColor = ''; b.style.fontWeight = '';
+    });
+    // Clear hidden final so it forces custom input
+    form.querySelector('.clockout-input-final').value = '';
+  }
+}
+
+// ── Submit clock-out correction ──
+function submitClockOut(id) {
+  const form     = document.querySelector(`.review-form[data-id="${id}"]`);
+  const finalInp = form.querySelector('.clockout-input-final');
+  const customInp = form.querySelector('.clockout-input');  // visible custom input if shown
+  const actInput  = form.querySelector('.action-input');
+  const aprInput  = form.querySelector('.approver-input');
+
+  // Use custom input if visible and filled, otherwise use preset final value
+  const customRow = document.getElementById(`custom-co-${id}`);
+  const usingCustom = customRow && customRow.style.display !== 'none';
+  const clockOut = usingCustom
+    ? (customInp ? customInp.value.trim() : '')
+    : (finalInp ? finalInp.value.trim() : '');
+
+  const action     = actInput  ? actInput.value.trim()  : '';
+  const approvedBy = aprInput  ? aprInput.value.trim()  : 'Quoc Than';
+
+  if (!clockOut.match(/^\d{1,2}:\d{2}$/)) {
+    const target = usingCustom ? customInp : (form.querySelector('.preset-co') || form);
+    if (customInp) { customInp.style.borderColor = '#ef4444'; customInp.focus(); }
+    if (!usingCustom) alert('Chọn một giờ Clock Out hoặc nhập giờ tùy chỉnh.');
+    return;
+  }
+
+  const body = new FormData();
+  body.append('clock_out',    clockOut);
+  body.append('action_taken', action || `Clock Out điền ${clockOut}`);
+  body.append('approved_by',  approvedBy || '');
+
+  fetch(`/review/clock_out/${id}`, { method: 'POST', body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById(`co-${id}`).textContent   = data.clock_out;
+        document.getElementById(`net-${id}`).textContent  = data.net_hrs  !== null ? data.net_hrs  : '—';
+        document.getElementById(`paid-${id}`).textContent = data.paid_hrs !== null ? data.paid_hrs + 'h' : '—';
+        const badge = document.getElementById(`badge-${id}`);
+        if (badge) { badge.textContent = data.status; badge.className = 'badge badge-status ' + _badgeClass(data.status); }
+        _markDone(form, id, approvedBy, `Clock Out ${clockOut}${action ? ' — ' + action : ''}`);
+      } else {
+        alert('Lỗi: ' + data.error);
+      }
+    });
+}
+
+// ── Submit late clock-in review ──
+function submitLateIn(id, approved) {
+  const form       = document.querySelector(`.review-form[data-id="${id}"]`);
+  const actionInput = form.querySelector('.action-input');
+  const aprInput    = form.querySelector('.approver-input');
+  const reason      = actionInput ? actionInput.value.trim() : '';
+  const approvedBy  = aprInput    ? aprInput.value.trim()    : 'Quoc Than';
+
+  let action;
+  if (approved) {
+    if (!reason) {
+      actionInput.placeholder = 'Nhập lý do trước khi Approve!';
+      actionInput.style.borderColor = '#ef4444';
+      actionInput.focus();
+      return;
+    }
+    action = `Đã duyệt đi trễ: ${reason}`;
+  } else {
+    action = reason ? `Đi trễ - không có lý do (ghi chú: ${reason})` : 'Đi trễ - không có lý do';
+  }
+
+  const body = new FormData();
+  body.append('action_taken', action);
+  body.append('approved_by',  approvedBy || '');
+
+  fetch(`/review/update/${id}`, { method: 'POST', body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        _markDone(form, id, approvedBy, action);
+      } else {
+        alert('Lỗi: ' + data.error);
+      }
+    });
+}
+
+// ── Generic review submit (Overtime, Manual, Others) ──
+function submitReview(id) {
+  const form        = document.querySelector(`.review-form[data-id="${id}"]`);
+  const actionInput = form.querySelector('.action-input');
+  const approver    = form.querySelector('.approver-input');
+  const paidInput   = form.querySelector('.paid-input');
+
+  const action = actionInput.tagName === 'SELECT'
+    ? actionInput.options[actionInput.selectedIndex].text.replace(/^[^\s]+\s/, '').trim()
+    : actionInput.value.trim();
+  const approvedBy = approver ? approver.value.trim() : 'Quoc Than';
+  const paidHrs    = paidInput ? paidInput.value : '';
+
+  if (actionInput.tagName === 'SELECT' && !actionInput.value) {
+    actionInput.style.borderColor = '#ef4444'; actionInput.focus(); return;
+  }
+
+  const body = new FormData();
+  body.append('action_taken', action || 'Reviewed');
+  body.append('approved_by',  approvedBy || '');
+  if (paidHrs) body.append('paid_hrs', paidHrs);
+
+  fetch(`/review/update/${id}`, { method: 'POST', body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        if (paidInput) document.getElementById(`paid-${id}`).textContent = paidHrs + 'h';
+        _markDone(form, id, approvedBy, action || 'Reviewed');
+      } else {
+        alert('Lỗi: ' + data.error);
+      }
+    });
+}
+
+// ── Shared: mark a row as done ──
+function _markDone(form, id, approvedBy, actionText) {
+  form.innerHTML = `
+    <span class="badge bg-success">✓ Done</span>
+    <small style="color:#64748b"> by ${approvedBy}</small>
+    <div style="font-size:.75rem;color:#94a3b8;margin-top:2px">${actionText}</div>`;
+  const row = document.getElementById(`row-${id}`);
+  if (row) row.style.opacity = '.6';
+  _decrementBadges();
+}
+
+function _decrementBadges() {
+  // Sidebar badge
+  const sb = document.querySelector('.badge-review');
+  if (sb) {
+    const n = parseInt(sb.textContent) - 1;
+    if (n <= 0) sb.remove(); else sb.textContent = n;
+  }
+  // Page header badge
+  const hb = document.getElementById('review-header-badge');
+  if (hb) {
+    const n = Math.max(0, parseInt(hb.textContent) - 1);
+    hb.textContent = n;
+    if (n === 0) hb.style.background = '#16a34a';  // turn green when all done
+  }
+  // Update subtitle
+  const sub = document.getElementById('review-subtitle');
+  if (sub && hb) {
+    const unres = parseInt(hb.textContent);
+    const total = (sub.textContent.match(/\/\s*(\d+)/) || [])[1] || '?';
+    sub.textContent = `${unres} chưa xử lý / ${total} tổng case`;
+  }
+}
+
+// ── Re-edit preset buttons (for already-Done records) ──
+document.querySelectorAll('.preset-co-re').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id   = this.dataset.id;
+    const time = this.dataset.time;
+    const form = document.getElementById(`re-edit-${id}`);
+    form.querySelector('.re-co-final').value = time;
+    form.querySelectorAll('.preset-co-re').forEach(b => {
+      b.style.background = ''; b.style.borderColor = ''; b.style.fontWeight = '';
+    });
+    this.style.background = '#eff6ff'; this.style.borderColor = '#3b82f6'; this.style.fontWeight = '700';
+    const cr = document.getElementById(`re-custom-${id}`);
+    if (cr) { cr.style.display = 'none'; cr.querySelector('.re-co-custom').value = ''; }
+  });
+});
+
+function toggleReCustom(id) {
+  const row = document.getElementById(`re-custom-${id}`);
+  if (!row) return;
+  const visible = row.style.display !== 'none';
+  row.style.display = visible ? 'none' : 'flex';
+  if (!visible) {
+    row.querySelector('.re-co-custom').focus();
+    const form = document.getElementById(`re-edit-${id}`);
+    form.querySelectorAll('.preset-co-re').forEach(b => {
+      b.style.background = ''; b.style.borderColor = ''; b.style.fontWeight = '';
+    });
+    form.querySelector('.re-co-final').value = '';
+  }
+}
+
+function openCoReEdit(id) {
+  document.getElementById(`done-block-${id}`).style.display = 'none';
+  document.getElementById(`re-edit-${id}`).style.display = 'block';
+}
+
+function cancelReEdit(id) {
+  document.getElementById(`re-edit-${id}`).style.display = 'none';
+  document.getElementById(`done-block-${id}`).style.display = 'block';
+}
+
+function submitReEdit(id) {
+  const form      = document.getElementById(`re-edit-${id}`);
+  const finalInp  = form.querySelector('.re-co-final');
+  const customInp = form.querySelector('.re-co-custom');
+  const noteInp   = form.querySelector('.re-co-note');
+  const customRow = document.getElementById(`re-custom-${id}`);
+
+  const usingCustom = customRow && customRow.style.display !== 'none';
+  const clockOut = usingCustom ? customInp.value.trim() : finalInp.value.trim();
+  const note     = noteInp ? noteInp.value.trim() : '';
+
+  if (!clockOut.match(/^\d{1,2}:\d{2}$/)) {
+    if (usingCustom) { customInp.style.borderColor = '#ef4444'; customInp.focus(); }
+    else alert('Chọn một giờ Clock Out hoặc nhập giờ tùy chỉnh.');
+    return;
+  }
+
+  const body = new FormData();
+  body.append('clock_out',    clockOut);
+  body.append('action_taken', note ? `Clock Out ${clockOut} — ${note}` : `Clock Out điền ${clockOut}`);
+  body.append('approved_by',  '{{ current_user }}');
+
+  fetch(`/review/clock_out/${id}`, { method: 'POST', body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById(`co-${id}`).textContent   = data.clock_out;
+        document.getElementById(`net-${id}`).textContent  = data.net_hrs  !== null ? data.net_hrs  : '—';
+        document.getElementById(`paid-${id}`).textContent = data.paid_hrs !== null ? data.paid_hrs + 'h' : '—';
+        const badge = document.getElementById(`badge-${id}`);
+        if (badge) { badge.textContent = data.status; badge.className = 'badge badge-status ' + _badgeClass(data.status); }
+        // Replace the re-edit block with updated Done text
+        form.style.display = 'none';
+        const doneBlock = document.getElementById(`done-block-${id}`);
+        doneBlock.style.display = 'block';
+        doneBlock.innerHTML = `
+          <span class="badge bg-success">✓ Done</span>
+          <small style="color:#64748b"> by {{ current_user }}</small>
+          <div style="color:#94a3b8;margin-top:2px">Clock Out ${clockOut}${note ? ' — ' + note : ''}</div>`;
+        document.getElementById(`row-${id}`).style.opacity = '.6';
+      } else {
+        alert('Lỗi: ' + data.error);
+      }
+    });
+}
+
+function _badgeClass(s) {
+  if (s.includes('Not Matched'))   return 'badge-notmatch';
+  if (s.includes('Missing'))       return 'badge-missing';
+  if (s.includes('Under Hours'))   return 'badge-under';
+  if (s.includes('Overtime'))      return 'badge-ot';
+  if (s.includes('After 20'))      return 'badge-late';
+  if (s.includes('Late Clock In')) return 'badge-latein';
+  if (s.includes('Manual'))        return 'badge-manual';
+  return 'badge-ok';
+}
+</script>
+{% endblock %}

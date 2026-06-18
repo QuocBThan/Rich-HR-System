@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block title %}Upload — Attendance System{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-cloud-upload me-2"></i>Upload Lark Attendance File</h4>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <div class="card mb-4">
+      <div class="card-header py-3">Upload File</div>
+      <div class="card-body p-4">
+        <form method="POST" enctype="multipart/form-data">
+          <div id="drop-zone"
+               style="border:2px dashed #cbd5e1;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:.2s;background:#f8fafc"
+               onclick="document.getElementById('fileInput').click()"
+               ondragover="event.preventDefault();this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+               ondragleave="this.style.borderColor='#cbd5e1';this.style.background='#f8fafc'"
+               ondrop="handleDrop(event)">
+            <i class="bi bi-file-earmark-spreadsheet" style="font-size:2.5rem;color:#94a3b8"></i>
+            <p class="mt-3 mb-1" style="color:#475569;font-weight:500">Kéo thả file vào đây hoặc click để chọn</p>
+            <p style="color:#94a3b8;font-size:.82rem">Hỗ trợ: .xlsx, .xls, .csv</p>
+            <div id="file-name" style="color:#3b82f6;font-weight:600;margin-top:8px"></div>
+          </div>
+          <input type="file" id="fileInput" name="file" accept=".xlsx,.xls,.csv"
+                 style="display:none" onchange="showFileName(this)">
+
+          <button type="submit" class="btn btn-primary w-100 mt-3" style="padding:10px">
+            <i class="bi bi-play-fill me-1"></i> Xử Lý Attendance
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header py-3"><i class="bi bi-info-circle me-2"></i>Hướng Dẫn</div>
+      <div class="card-body p-4">
+        <ol style="line-height:2;color:#475569">
+          <li>Export file attendance từ <strong>Lark</strong> (format Excel/CSV)</li>
+          <li>Upload file lên đây — hệ thống tự nhận diện format</li>
+          <li>Kết quả xử lý hiện trong <strong>Attendance Records</strong></li>
+          <li>Các case bất thường tự động vào <strong>Review Queue</strong></li>
+        </ol>
+
+        <hr style="border-color:#f1f5f9">
+        <p class="mb-2" style="font-weight:600;color:#374151">Format file Lark được hỗ trợ:</p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered" style="font-size:.82rem">
+            <thead style="background:#f8fafc">
+              <tr><th>Name</th><th>Department</th><th>2026-06-01</th><th>2026-06-02</th><th>...</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Phoebe Nguyen</td><td>Marketing</td><td>09:34,18:33</td><td>09:32,18:34</td><td>...</td></tr>
+              <tr><td>Anna Nguyen</td><td>Media</td><td>10:05,20:15</td><td>-</td><td>...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="color:#94a3b8;font-size:.8rem">
+          <i class="bi bi-lightbulb me-1"></i>
+          Mỗi ô ngày chứa <code>ClockIn,ClockOut</code> hoặc <code>-</code> (vắng mặt).<br>
+          Ghi chú trong ngoặc như <code>(Late Arrival Approved)</code> được tự động extract.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showFileName(input) {
+  const el = document.getElementById('file-name');
+  el.textContent = input.files[0] ? '📄 ' + input.files[0].name : '';
+}
+function handleDrop(e) {
+  e.preventDefault();
+  const zone = document.getElementById('drop-zone');
+  zone.style.borderColor = '#cbd5e1';
+  zone.style.background  = '#f8fafc';
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const input = document.getElementById('fileInput');
+    const dt    = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    document.getElementById('file-name').textContent = '📄 ' + file.name;
+  }
+}
+</script>
+{% endblock %}

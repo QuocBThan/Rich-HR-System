@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}Chấm Công Của Tôi{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h4><i class="bi bi-person-lines-fill me-2"></i>Chấm Công Của Tôi</h4>
+    <div style="color:#64748b;font-size:.85rem">
+      {{ employee.name if employee else current_user }} &nbsp;·&nbsp;
+      {{ employee.department if employee and employee.department else '—' }}
+    </div>
+  </div>
+</div>
+
+<!-- Date filter -->
+<div class="card mb-4">
+  <div class="card-body p-3">
+    <form method="GET" action="{{ url_for('portal') }}" class="d-flex flex-wrap align-items-end gap-3">
+      <div>
+        <label class="form-label mb-1" style="font-size:.78rem;font-weight:600;color:#64748b">Từ ngày</label>
+        <input type="date" name="from_date" class="form-control form-control-sm" value="{{ from_date }}" style="width:150px">
+      </div>
+      <div>
+        <label class="form-label mb-1" style="font-size:.78rem;font-weight:600;color:#64748b">Đến ngày</label>
+        <input type="date" name="to_date" class="form-control form-control-sm" value="{{ to_date }}" style="width:150px">
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-search me-1"></i>Xem
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyPeriod('ky1')">Kỳ 1</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyPeriod('ky2')">Kỳ 2</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="applyPeriod('month')">Cả tháng</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Summary stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="card text-center p-3">
+      <div style="font-size:1.6rem;font-weight:700;color:#3b82f6">{{ stats.total }}</div>
+      <div style="font-size:.75rem;color:#64748b;margin-top:2px">Tổng ngày</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card text-center p-3">
+      <div style="font-size:1.6rem;font-weight:700;color:#16a34a">{{ stats.ok }}</div>
+      <div style="font-size:.75rem;color:#64748b;margin-top:2px">Bình thường</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card text-center p-3">
+      <div style="font-size:1.6rem;font-weight:700;color:#c2410c">{{ stats.late }}</div>
+      <div style="font-size:.75rem;color:#64748b;margin-top:2px">Đi trễ</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card text-center p-3">
+      <div style="font-size:1.6rem;font-weight:700;color:#dc2626">{{ stats.missing }}</div>
+      <div style="font-size:.75rem;color:#64748b;margin-top:2px">Thiếu chấm</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card text-center p-3">
+      <div style="font-size:1.6rem;font-weight:700;color:#a16207">{{ stats.ot }}</div>
+      <div style="font-size:.75rem;color:#64748b;margin-top:2px">Tăng ca</div>
+    </div>
+  </div>
+</div>
+
+<!-- Attendance table -->
+<div class="card">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <span>Dữ Liệu Chấm Công ({{ records|length }} ngày)</span>
+    <span style="font-size:.78rem;color:#94a3b8">{{ from_date }} → {{ to_date }}</span>
+  </div>
+  {% if records %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Ngày</th>
+          <th>Trạng thái</th>
+          <th>Giờ vào</th>
+          <th>Giờ ra</th>
+          <th>Giờ công</th>
+          <th>Ghi chú</th>
+          <th>Xử lý</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        {% set st = r.status or '' %}
+        {% if '✅' in st %}{% set row_cls = 'row-ok' %}
+        {% elif 'Overtime' in st or 'Late Clock Out' in st %}{% set row_cls = 'row-ot' %}
+        {% elif 'Late' in st and 'Out' not in st %}{% set row_cls = 'row-latein' %}
+        {% elif 'Missing' in st %}{% set row_cls = 'row-missing' %}
+        {% elif 'Under' in st %}{% set row_cls = 'row-under' %}
+        {% elif 'Manual' in st %}{% set row_cls = 'row-manual' %}
+        {% else %}{% set row_cls = '' %}{% endif %}
+        <tr class="{{ row_cls }}">
+          <td style="white-space:nowrap">
+            <strong>{{ r.date[8:10] }}/{{ r.date[5:7] }}/{{ r.date[:4] }}</strong>
+          </td>
+          <td>
+            <span class="badge
+              {% if '✅' in st %}badge-ok
+              {% elif 'Overtime' in st or 'Late Clock Out' in st %}badge-ot
+              {% elif 'Late' in st and 'Out' not in st %}badge-latein
+              {% elif 'Missing' in st %}badge-missing
+              {% elif 'Manual' in st %}badge-manual
+              {% else %}bg-secondary{% endif %}" style="font-size:.75rem">
+              {{ st }}
+            </span>
+          </td>
+          <td>{{ r.clock_in or '—' }}</td>
+          <td>{{ r.clock_out or '—' }}</td>
+          <td>
+            {% if r.paid_hrs %}
+              {{ '%.1f'|format(r.paid_hrs) }}h
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size:.8rem;color:#64748b;max-width:200px">{{ r.notes or '—' }}</td>
+          <td style="font-size:.8rem">
+            {% if r.action_taken %}
+              <span style="color:#16a34a"><i class="bi bi-check-circle me-1"></i>{{ r.action_taken }}</span>
+            {% elif '✅' not in st %}
+              <span style="color:#94a3b8;font-style:italic">Chờ xử lý</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-5 text-center" style="color:#94a3b8">
+    <i class="bi bi-calendar-x" style="font-size:2rem;display:block;margin-bottom:8px"></i>
+    Không có dữ liệu chấm công trong khoảng thời gian này.
+  </div>
+  {% endif %}
+</div>
+
+{% block scripts %}
+<script>
+function applyPeriod(p) {
+  const now   = new Date();
+  const y     = now.getFullYear();
+  const m     = String(now.getMonth() + 1).padStart(2, '0');
+  let from_d, to_d;
+
+  if (p === 'ky1') {
+    from_d = `${y}-${m}-01`;
+    to_d   = `${y}-${m}-15`;
+  } else if (p === 'ky2') {
+    const last = new Date(y, now.getMonth() + 1, 0).getDate();
+    from_d = `${y}-${m}-16`;
+    to_d   = `${y}-${m}-${last}`;
+  } else {
+    const last = new Date(y, now.getMonth() + 1, 0).getDate();
+    from_d = `${y}-${m}-01`;
+    to_d   = `${y}-${m}-${last}`;
+  }
+
+  document.querySelector('input[name="from_date"]').value = from_d;
+  document.querySelector('input[name="to_date"]').value   = to_d;
+  document.querySelector('form').submit();
+}
+</script>
+{% endblock %}
+{% endblock %}

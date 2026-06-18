@@ -1,0 +1,672 @@
+{% extends 'base.html' %}
+{% block title %}Tickets Phép & Đi Trễ — Rich HR{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-ticket-perforated me-2"></i>Tickets Phép & Đi Trễ</h4>
+  <span style="font-size:.82rem;color:#94a3b8">Ticket được duyệt ngay khi tạo · Nhấn Ticket ID để xem chi tiết</span>
+</div>
+
+<!-- ─── Two submit forms ─────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+
+  <!-- Nghỉ Phép Năm -->
+  <div class="col-lg-6">
+    <div class="card h-100" style="border-top:3px solid #2563eb">
+      <div class="card-header py-3 d-flex align-items-center gap-2">
+        <i class="bi bi-umbrella" style="color:#2563eb"></i>
+        <span style="font-weight:600">Nghỉ Phép Năm</span>
+        <small style="color:#94a3b8;font-weight:400;margin-left:2px">Full-time · 1 ngày/tháng</small>
+      </div>
+      <form method="POST" action="{{ url_for('create_ticket') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="type" value="annual_leave">
+        <div class="card-body p-4">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Ticket ID</label>
+            <div class="form-control" style="background:#f8fafc;color:#94a3b8;font-family:monospace;letter-spacing:.5px;font-size:.85rem">
+              Tự động — PH-YYYYMM-NNN
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Nhân Viên <span class="text-danger">*</span></label>
+            <select name="employee_id" id="ph_employee" class="form-select" required onchange="updateLeaveLabel()">
+              <option value="">— Chọn nhân viên —</option>
+              {% for e in employees %}{% if e.employment_type != 'part_time' %}
+              {% set lv = leave_map.get(e.id) %}
+              <option value="{{ e.id }}"
+                      data-remaining="{{ lv.leave_remaining if lv else '' }}"
+                      data-accrued="{{ lv.leave_accrued if lv else '' }}">
+                {{- e.name -}}{% if e.department %} · {{ e.department }}{% endif %}
+                {%- if lv %} — còn {{ lv.leave_remaining }} ngày{% endif %}
+              </option>
+              {% endif %}{% endfor %}
+            </select>
+            <div id="ph_leave_hint" class="leave-hint" style="display:none"></div>
+            <div class="form-text">Chỉ áp dụng cho nhân viên Full-time</div>
+          </div>
+
+          <!-- Date range row -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Thời Gian Nghỉ <span class="text-danger">*</span></label>
+            <div class="date-range-wrap">
+              <div class="date-range-inputs">
+                <div class="date-field">
+                  <div class="date-field-label">Từ ngày</div>
+                  <input type="date" name="leave_date" id="ph_from" class="form-control"
+                         value="{{ today }}" required onchange="updateDayCount('ph')">
+                </div>
+                <div class="date-range-arrow"><i class="bi bi-arrow-right"></i></div>
+                <div class="date-field">
+                  <div class="date-field-label">Đến ngày</div>
+                  <input type="date" name="leave_date_to" id="ph_to" class="form-control"
+                         value="{{ today }}" onchange="updateDayCount('ph')">
+                </div>
+              </div>
+              <div class="day-count-pill" id="ph_count_pill">
+                <i class="bi bi-calendar-check"></i>
+                <span id="ph_count_text">1 ngày</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Lý Do</label>
+            <input type="text" name="reason" class="form-control" placeholder="Lý do nghỉ phép...">
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Duyệt Bởi</label>
+            <div class="d-flex align-items-center gap-2 form-control" style="background:#f0fdf4;border-color:#86efac">
+              <i class="bi bi-check-circle-fill" style="color:#16a34a"></i>
+              <span style="color:#15803d;font-weight:600">{{ current_user }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer bg-white border-0 px-4 pb-4 pt-0">
+          <button type="submit" class="btn btn-primary w-100" style="font-weight:600;padding:11px;font-size:.9rem">
+            <i class="bi bi-check-circle me-2"></i>Duyệt & Tạo Ticket Phép Năm
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Xin Đi Trễ -->
+  <div class="col-lg-6">
+    <div class="card h-100" style="border-top:3px solid #f59e0b">
+      <div class="card-header py-3 d-flex align-items-center gap-2">
+        <i class="bi bi-clock-history" style="color:#f59e0b"></i>
+        <span style="font-weight:600">Xin Đi Trễ</span>
+        <small style="color:#94a3b8;font-weight:400;margin-left:2px">Full-time · Late arrival approval</small>
+      </div>
+      <form method="POST" action="{{ url_for('create_ticket') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="type" value="late_arrival">
+        <div class="card-body p-4">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Ticket ID</label>
+            <div class="form-control" style="background:#f8fafc;color:#94a3b8;font-family:monospace;letter-spacing:.5px;font-size:.85rem">
+              Tự động — DT-YYYYMM-NNN
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Nhân Viên <span class="text-danger">*</span></label>
+            <select name="employee_id" class="form-select" required>
+              <option value="">— Chọn nhân viên —</option>
+              {% for e in employees %}{% if e.employment_type != 'part_time' %}
+              <option value="{{ e.id }}">{{ e.name }}{% if e.department %} · {{ e.department }}{% endif %}</option>
+              {% endif %}{% endfor %}
+            </select>
+            <div class="form-text">Part-time tính lương theo giờ thực làm — không cần ticket đi trễ</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Ngày <span class="text-danger">*</span></label>
+            <input type="date" name="leave_date" class="form-control" value="{{ today }}" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Giờ Dự Kiến Đến</label>
+            <input type="time" name="expected_time" class="form-control">
+            <div class="form-text">Để trống nếu chưa xác định</div>
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Lý Do</label>
+            <input type="text" name="reason" class="form-control" placeholder="Lý do đi trễ...">
+          </div>
+
+          <div class="mb-0 mt-3">
+            <label class="form-label fw-semibold" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.4px;color:#475569">Duyệt Bởi</label>
+            <div class="d-flex align-items-center gap-2 form-control" style="background:#fffbeb;border-color:#fcd34d">
+              <i class="bi bi-check-circle-fill" style="color:#d97706"></i>
+              <span style="color:#92400e;font-weight:600">{{ current_user }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer bg-white border-0 px-4 pb-4 pt-0">
+          <button type="submit" class="btn w-100"
+                  style="background:#f59e0b;color:#fff;font-weight:600;padding:11px;border:none;font-size:.9rem;border-radius:6px">
+            <i class="bi bi-check-circle me-2"></i>Duyệt & Tạo Ticket Đi Trễ
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Ticket History ───────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header py-3 d-flex flex-wrap gap-3 align-items-center justify-content-between">
+    <span><i class="bi bi-list-ul me-2"></i>Lịch Sử Tickets ({{ tickets|length }})</span>
+    <form method="GET" action="{{ url_for('tickets') }}" class="d-flex gap-2 flex-wrap align-items-center">
+      <select name="type" class="form-select form-select-sm" style="width:160px" onchange="this.form.submit()">
+        <option value="">Tất cả loại</option>
+        <option value="annual_leave" {{ 'selected' if filters.get('type') == 'annual_leave' }}>🌴 Phép Năm</option>
+        <option value="late_arrival" {{ 'selected' if filters.get('type') == 'late_arrival' }}>⏰ Đi Trễ</option>
+      </select>
+      <select name="employee_id" class="form-select form-select-sm" style="width:170px" onchange="this.form.submit()">
+        <option value="">Tất cả NV</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {{ 'selected' if filters.get('employee_id') == e.id }}>{{ e.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="month" class="form-select form-select-sm" style="width:130px" onchange="this.form.submit()">
+        <option value="">Tất cả tháng</option>
+        {% for m in months %}
+        <option value="{{ m }}" {{ 'selected' if filters.get('month') == m }}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      {% if filters %}<a href="{{ url_for('tickets') }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>{% endif %}
+    </form>
+  </div>
+
+  {% if tickets %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.84rem">
+      <thead>
+        <tr>
+          <th>Ticket ID</th>
+          <th>Loại</th>
+          <th>Nhân Viên</th>
+          <th>Phòng Ban</th>
+          <th>Thời Gian Nghỉ</th>
+          <th>Chi Tiết</th>
+          <th>Lý Do</th>
+          <th>Duyệt Bởi</th>
+          <th>Thời Gian Tạo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td>
+            <button class="btn btn-link p-0 ticket-id-btn"
+                    style="font-family:monospace;font-size:.82rem;font-weight:700;text-decoration:none;
+                           color:{{ '#1e40af' if t.type == 'annual_leave' else '#92400e' }}"
+                    data-ticket="{{ t | tojson | e }}"
+                    onclick="showTicketDetail(JSON.parse(this.dataset.ticket))">
+              {{ t.ticket_id }}
+              <i class="bi bi-box-arrow-up-right ms-1" style="font-size:.65rem;opacity:.5"></i>
+            </button>
+          </td>
+          <td>
+            {% if t.type == 'annual_leave' %}
+            <span class="badge" style="background:#dbeafe;color:#1e40af;font-size:.75rem">🌴 Phép Năm</span>
+            {% else %}
+            <span class="badge" style="background:#fef9c3;color:#92400e;font-size:.75rem">⏰ Đi Trễ</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ t.employee_name }}</strong></td>
+          <td style="color:#64748b">{{ t.department or '—' }}</td>
+          <td style="white-space:nowrap">
+            {% if t.type == 'annual_leave' %}
+              {% if t.leave_date_to and t.leave_date_to != t.leave_date %}
+                <span style="color:#1e40af;font-weight:600">{{ t.leave_date }}</span>
+                <span style="color:#94a3b8;margin:0 4px">→</span>
+                <span style="color:#1e40af;font-weight:600">{{ t.leave_date_to }}</span>
+                <span class="days-pill">{{ t.days_count or 1 }} ngày</span>
+              {% else %}
+                <span style="color:#1e40af;font-weight:600">{{ t.leave_date }}</span>
+                <span class="days-pill">1 ngày</span>
+              {% endif %}
+            {% else %}
+              <span style="color:#475569">{{ t.leave_date }}</span>
+            {% endif %}
+          </td>
+          <td style="color:#64748b">
+            {% if t.type == 'late_arrival' and t.expected_time %}
+            <i class="bi bi-clock me-1" style="color:#f59e0b"></i>{{ t.expected_time }}
+            {% else %}<span style="color:#cbd5e1">—</span>{% endif %}
+          </td>
+          <td style="max-width:160px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ t.reason or '—' }}
+          </td>
+          <td>
+            <span style="color:#16a34a;font-weight:600;font-size:.82rem">
+              <i class="bi bi-patch-check-fill me-1"></i>{{ t.approved_by or '—' }}
+            </span>
+          </td>
+          <td style="color:#94a3b8;white-space:nowrap;font-size:.78rem">{{ t.created_at }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('delete_ticket', ticket_id=t.id) }}"
+                  style="display:inline"
+                  onsubmit="return confirm('Xóa ticket {{ t.ticket_id }}?\n\nRecord chấm công liên quan sẽ không được hoàn tác tự động.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-danger btn-sm" title="Xóa"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% set ph_count = tickets | selectattr('type','equalto','annual_leave') | list | length %}
+  {% set dt_count = tickets | selectattr('type','equalto','late_arrival') | list | length %}
+  <div class="px-4 py-3" style="background:#f8fafc;border-top:1px solid #f1f5f9;border-radius:0 0 12px 12px;font-size:.82rem;color:#64748b">
+    Tổng <strong>{{ tickets|length }}</strong> tickets —
+    <span style="color:#1e40af">🌴 {{ ph_count }} phép năm</span> ·
+    <span style="color:#92400e">⏰ {{ dt_count }} đi trễ</span>
+  </div>
+
+  {% else %}
+  <div class="p-5 text-center" style="color:#94a3b8">
+    <i class="bi bi-ticket-perforated" style="font-size:2.5rem"></i>
+    <p class="mt-3 mb-0">
+      {% if filters %}Không có ticket nào khớp bộ lọc.
+      {% else %}Chưa có ticket nào. Tạo ticket đầu tiên ở trên.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ─── Ticket Detail Modal ──────────────────────────────────────── -->
+<div class="modal fade" id="ticketDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content" style="border:none;border-radius:16px;overflow:hidden">
+
+      <div id="tdm-header" class="p-4" style="background:#1e40af">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div id="tdm-type-badge" class="mb-2" style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;opacity:.8;color:#fff"></div>
+            <div id="tdm-ticket-id" style="font-family:monospace;font-size:1.4rem;font-weight:800;color:#fff;letter-spacing:1px"></div>
+          </div>
+          <div style="background:rgba(255,255,255,.15);border-radius:10px;padding:8px 12px;text-align:center">
+            <i id="tdm-icon" class="bi" style="font-size:1.6rem;color:#fff"></i>
+          </div>
+        </div>
+        <div class="mt-3 d-flex align-items-center gap-2">
+          <span style="background:rgba(255,255,255,.2);color:#fff;border-radius:99px;padding:3px 10px;font-size:.75rem;font-weight:600">
+            <i class="bi bi-patch-check-fill me-1"></i>ĐÃ DUYỆT
+          </span>
+          <span id="tdm-created-at" style="color:rgba(255,255,255,.65);font-size:.78rem"></span>
+        </div>
+      </div>
+
+      <div class="modal-body p-0">
+        <div class="px-4 py-3" style="border-bottom:1px solid #f1f5f9">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600">Nhân Viên</div>
+          <div id="tdm-employee" style="font-size:1rem;font-weight:700;color:#0f172a;margin-top:2px"></div>
+          <div id="tdm-department" style="font-size:.82rem;color:#64748b"></div>
+        </div>
+
+        <div class="px-4 py-3" style="border-bottom:1px solid #f1f5f9">
+          <div class="row g-3">
+            <div id="tdm-date-col" class="col-12">
+              <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600">Thời Gian Nghỉ</div>
+              <div id="tdm-date" style="font-weight:700;color:#0f172a;margin-top:4px;font-size:.95rem"></div>
+            </div>
+            <div class="col-6" id="tdm-time-col">
+              <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600">Giờ Dự Kiến Đến</div>
+              <div id="tdm-time" style="font-weight:700;color:#0f172a;margin-top:2px;font-size:.95rem"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-4 py-3" style="border-bottom:1px solid #f1f5f9">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600">Lý Do</div>
+          <div id="tdm-reason" style="color:#374151;margin-top:4px;font-size:.9rem;line-height:1.5"></div>
+        </div>
+
+        <div class="px-4 py-3">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600">Duyệt Bởi</div>
+          <div id="tdm-approved-by" style="font-weight:600;color:#16a34a;margin-top:4px"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer border-0 px-4 pb-4 pt-0">
+        <button class="btn btn-outline-secondary w-100" data-bs-dismiss="modal">Đóng</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* ─── Leave hint below dropdown ─────────────────────── */
+.leave-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: .8rem;
+  font-weight: 600;
+  animation: hintIn .2s ease;
+}
+@keyframes hintIn {
+  from { opacity:0; transform: translateY(-4px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+.leave-hint.ok    { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+.leave-hint.warn  { background:#fffbeb; color:#92400e; border:1px solid #fde68a; }
+.leave-hint.over  { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; }
+
+/* ─── Success overlay animation ─────────────────────── */
+.ticket-success-overlay {
+  position: fixed; inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ticket-success-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06);
+  padding: 40px 48px;
+  text-align: center;
+  animation: successPop .45s cubic-bezier(.22,.68,0,1.2) both;
+  max-width: 340px;
+  width: 100%;
+}
+@keyframes successPop {
+  from { opacity:0; transform: scale(.8) translateY(20px); }
+  to   { opacity:1; transform: scale(1) translateY(0); }
+}
+.ticket-success-bg {
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,.35);
+  backdrop-filter: blur(3px);
+  animation: bgIn .3s ease both;
+}
+@keyframes bgIn {
+  from { opacity:0; }
+  to   { opacity:1; }
+}
+.success-check {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
+  box-shadow: 0 8px 24px rgba(34,197,94,.4);
+  animation: checkBounce .5s .2s cubic-bezier(.22,.68,0,1.4) both;
+}
+@keyframes checkBounce {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+.success-check svg { width: 36px; height: 36px; }
+.success-title  { font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+.success-sub    { font-size: .85rem; color: #64748b; line-height: 1.5; }
+.success-id     { display: inline-block; margin-top: 12px; font-family: monospace; font-size: .95rem;
+                  font-weight: 700; background: #eff6ff; color: #1d4ed8;
+                  border-radius: 8px; padding: 5px 16px; letter-spacing: .5px; }
+
+/* Confetti dots */
+.confetti-dot {
+  position: fixed; border-radius: 50%; pointer-events: none; z-index: 9001;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0%   { transform: translateY(-20px) rotate(0deg); opacity:1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity:0; }
+}
+
+/* ─── Date range picker ──────────────────────────────── */
+.date-range-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.date-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.date-field {
+  flex: 1;
+}
+.date-field-label {
+  font-size: .7rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 4px;
+}
+.date-field input[type="date"] {
+  font-size: .85rem;
+}
+.date-range-arrow {
+  color: #94a3b8;
+  font-size: .9rem;
+  flex-shrink: 0;
+  margin-top: 18px;
+}
+.day-count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 99px;
+  padding: 5px 14px;
+  font-size: .8rem;
+  font-weight: 600;
+  width: fit-content;
+  transition: background .15s, color .15s;
+}
+.day-count-pill.warn {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+/* ─── Days pill in table ─────────────────────────────── */
+.days-pill {
+  display: inline-flex;
+  align-items: center;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 99px;
+  padding: 1px 8px;
+  font-size: .7rem;
+  font-weight: 700;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+</style>
+
+<script>
+/* ─── Day count pill ───────────────────────── */
+function updateDayCount(prefix) {
+  const fromVal = document.getElementById(prefix + '_from').value;
+  const toVal   = document.getElementById(prefix + '_to').value;
+  const pill    = document.getElementById(prefix + '_count_pill');
+  const text    = document.getElementById(prefix + '_count_text');
+  if (!fromVal || !toVal) { text.textContent = '—'; return; }
+  const diff = Math.round((new Date(toVal) - new Date(fromVal)) / 86400000) + 1;
+  if (diff < 1) {
+    document.getElementById(prefix + '_to').value = fromVal;
+    pill.classList.remove('warn');
+    text.textContent = '1 ngày';
+  } else {
+    pill.classList.remove('warn');
+    text.textContent = diff + ' ngày';
+  }
+  updateLeaveLabel();
+}
+
+document.getElementById('ph_from').addEventListener('change', function () {
+  const toInput = document.getElementById('ph_to');
+  if (toInput.value && toInput.value < this.value) toInput.value = this.value;
+  updateDayCount('ph');
+});
+
+/* ─── Leave balance hint ───────────────────── */
+function updateLeaveLabel() {
+  const sel  = document.getElementById('ph_employee');
+  const hint = document.getElementById('ph_leave_hint');
+  const pill = document.getElementById('ph_count_pill');
+  const opt  = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) { hint.style.display = 'none'; return; }
+
+  const remaining = parseInt(opt.dataset.remaining, 10);
+  const accrued   = parseInt(opt.dataset.accrued, 10);
+  if (isNaN(remaining)) { hint.style.display = 'none'; return; }
+
+  // Days being requested
+  const fromVal = document.getElementById('ph_from').value;
+  const toVal   = document.getElementById('ph_to').value;
+  const requesting = (fromVal && toVal)
+    ? Math.max(1, Math.round((new Date(toVal) - new Date(fromVal)) / 86400000) + 1)
+    : 1;
+  const afterUse = remaining - requesting;
+
+  hint.className = 'leave-hint ' + (afterUse > 0 ? 'ok' : afterUse === 0 ? 'warn' : 'over');
+  hint.style.display = '';
+  hint.innerHTML = afterUse > 0
+    ? `<i class="bi bi-calendar-check-fill"></i> Còn <strong>${remaining}</strong> ngày · Sau khi nghỉ còn <strong>${afterUse}</strong> ngày`
+    : afterUse === 0
+    ? `<i class="bi bi-exclamation-triangle-fill"></i> Dùng hết <strong>${remaining}</strong> ngày phép năm (đã tích lũy ${accrued} ngày)`
+    : `<i class="bi bi-x-circle-fill"></i> Vượt phép: cần <strong>${requesting}</strong> ngày nhưng chỉ còn <strong>${remaining}</strong> ngày`;
+}
+
+/* ─── Success animation on page load ──────── */
+{% if created_ticket %}
+(function () {
+  showSuccessAnim({{ created_ticket | tojson }});
+})();
+{% endif %}
+
+function showSuccessAnim(ticketId) {
+  const isLeave = ticketId.startsWith('PH-');
+  const label   = isLeave ? 'Phép năm đã được duyệt' : 'Ticket đi trễ đã được tạo';
+  const sub     = isLeave ? 'Attendance đã được cập nhật tự động' : 'Record chấm công đã được ghi nhận';
+
+  // Backdrop
+  const bg = document.createElement('div');
+  bg.className = 'ticket-success-bg';
+  document.body.appendChild(bg);
+
+  // Card
+  const overlay = document.createElement('div');
+  overlay.className = 'ticket-success-overlay';
+  overlay.innerHTML = `
+    <div class="ticket-success-card">
+      <div class="success-check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <div class="success-title">${label}</div>
+      <div class="success-sub">${sub}</div>
+      <div class="success-id">${ticketId}</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  // Confetti
+  const colors = ['#2563eb','#16a34a','#f59e0b','#8b5cf6','#ec4899','#06b6d4'];
+  for (let i = 0; i < 36; i++) {
+    const d = document.createElement('div');
+    d.className = 'confetti-dot';
+    const size = 6 + Math.random() * 8;
+    d.style.cssText = [
+      'width:' + size + 'px', 'height:' + size + 'px',
+      'left:' + (10 + Math.random() * 80) + 'vw',
+      'top:-20px',
+      'background:' + colors[Math.floor(Math.random() * colors.length)],
+      'animation-duration:' + (1.2 + Math.random() * 1.4) + 's',
+      'animation-delay:' + (Math.random() * .4) + 's',
+    ].join(';');
+    document.body.appendChild(d);
+    d.addEventListener('animationend', () => d.remove());
+  }
+
+  // Auto-dismiss after 2.4s
+  const dismiss = () => {
+    [bg, overlay].forEach(el => {
+      el.style.transition = 'opacity .25s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 260);
+    });
+  };
+  setTimeout(dismiss, 2400);
+  overlay.addEventListener('click', dismiss);
+  bg.addEventListener('click', dismiss);
+}
+
+function showTicketDetail(t) {
+  const isLeave = t.type === 'annual_leave';
+  const hdr     = document.getElementById('tdm-header');
+
+  hdr.style.background = isLeave ? '#1e40af' : '#92400e';
+  document.getElementById('tdm-type-badge').textContent = isLeave ? '🌴 Phép Năm' : '⏰ Đi Trễ';
+  document.getElementById('tdm-icon').className         = 'bi ' + (isLeave ? 'bi-umbrella-fill' : 'bi-clock-history');
+  document.getElementById('tdm-ticket-id').textContent  = t.ticket_id;
+  document.getElementById('tdm-created-at').textContent = t.created_at;
+  document.getElementById('tdm-employee').textContent   = t.employee_name;
+  document.getElementById('tdm-department').textContent = t.department || '';
+  document.getElementById('tdm-reason').textContent     = t.reason || '(Không có lý do)';
+  document.getElementById('tdm-approved-by').innerHTML  =
+    '<i class="bi bi-patch-check-fill me-1"></i>' + (t.approved_by || '—');
+
+  // Date display
+  const dateEl = document.getElementById('tdm-date');
+  const timeCol = document.getElementById('tdm-time-col');
+
+  if (isLeave) {
+    timeCol.style.display = 'none';
+    const days = t.days_count || 1;
+    if (t.leave_date_to && t.leave_date_to !== t.leave_date) {
+      dateEl.innerHTML =
+        '<span style="color:#1e40af">' + t.leave_date + '</span>' +
+        ' <span style="color:#94a3b8;margin:0 6px">→</span> ' +
+        '<span style="color:#1e40af">' + t.leave_date_to + '</span>' +
+        ' <span style="display:inline-flex;align-items:center;background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:2px 10px;font-size:.75rem;font-weight:700;margin-left:6px">' + days + ' ngày</span>';
+    } else {
+      dateEl.innerHTML =
+        '<span style="color:#1e40af">' + t.leave_date + '</span>' +
+        ' <span style="display:inline-flex;align-items:center;background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:2px 10px;font-size:.75rem;font-weight:700;margin-left:6px">1 ngày</span>';
+    }
+  } else {
+    // Late arrival — single date, show time if present
+    dateEl.innerHTML = '<span style="color:#475569">' + t.leave_date + '</span>';
+    if (t.expected_time) {
+      timeCol.style.display = '';
+      document.getElementById('tdm-time').textContent = t.expected_time;
+    } else {
+      timeCol.style.display = 'none';
+    }
+  }
+
+  new bootstrap.Modal(document.getElementById('ticketDetailModal')).show();
+}
+
+// Init day count on page load
+updateDayCount('ph');
+</script>
+{% endblock %}

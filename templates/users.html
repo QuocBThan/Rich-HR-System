@@ -1,0 +1,238 @@
+{% extends 'base.html' %}
+{% block title %}Quản Lý Users{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-person-gear me-2"></i>Quản Lý Users</h4>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addUserModal">
+    <i class="bi bi-plus-lg me-1"></i> Thêm User
+  </button>
+</div>
+
+<div class="row g-4">
+  <!-- Users list -->
+  <div class="col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header py-3">Danh Sách Users ({{ users|length }})</div>
+      {% if users %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Username</th><th>Tên hiển thị</th><th>Role</th><th>Nhân viên</th><th>Department</th><th>Tạo lúc</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            {% set linked_emp = employees | selectattr('id', 'equalto', u.employee_id) | list | first if u.employee_id else none %}
+            <tr>
+              <td><code>{{ u.username }}</code></td>
+              <td><strong>{{ u.display_name or '—' }}</strong></td>
+              <td>
+                <span class="badge {% if u.role == 'admin' %}bg-danger{% elif u.role == 'hr' %}bg-primary{% elif u.role == 'employee' %}bg-success{% else %}bg-secondary{% endif %}">
+                  {{ u.role }}
+                </span>
+              </td>
+              <td>
+                {% if linked_emp %}
+                <span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:500">
+                  <i class="bi bi-person-fill me-1"></i>{{ linked_emp.name }}
+                </span>
+                {% else %}
+                <span style="color:#94a3b8">—</span>
+                {% endif %}
+              </td>
+              <td>{{ u.department or '—' }}</td>
+              <td style="font-size:.78rem;color:#94a3b8">{{ u.created_at[:10] }}</td>
+              <td>
+                {% if u.id != current_user_id %}
+                <form method="POST" action="{{ url_for('delete_user', user_id=u.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Xóa user {{ u.username }}?')">
+                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                </form>
+                {% else %}
+                <span style="font-size:.75rem;color:#94a3b8">(bạn)</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="p-4 text-center" style="color:#94a3b8">Chưa có user nào.</div>
+      {% endif %}
+    </div>
+
+    <!-- Change own password -->
+    <div class="card">
+      <div class="card-header py-3"><i class="bi bi-key me-2"></i>Đổi Mật Khẩu Của Bạn</div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('change_password') }}" class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Mật khẩu cũ</label>
+            <input type="password" name="old_password" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Mật khẩu mới</label>
+            <input type="password" name="new_password" id="new_pw_main" class="form-control" minlength="8"
+                   oninput="checkStrength(this.value,'bar_main','criteria_main')" required>
+            <div class="mt-2"><div class="progress" style="height:5px"><div id="bar_main" class="progress-bar" style="width:0%;transition:.3s"></div></div></div>
+            <div id="criteria_main" class="mt-1" style="font-size:.72rem"></div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Xác nhận</label>
+            <input type="password" name="confirm_password" class="form-control" minlength="8" required>
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Đổi Mật Khẩu
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guide -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header py-3"><i class="bi bi-info-circle me-2"></i>Hướng Dẫn Phân Quyền</div>
+      <div class="card-body p-4" style="font-size:.85rem;line-height:1.8;color:#475569">
+        <p><span class="badge bg-danger">admin</span> — Toàn quyền: xem tất cả, quản lý users, làm lương, export</p>
+        <p><span class="badge bg-primary">hr</span> — HR: xem tất cả departments, làm lương, export (không quản lý users)</p>
+        <p><span class="badge bg-success">employee</span> — Nhân viên: chỉ xem dữ liệu chấm công của bản thân, cần gán nhân viên</p>
+        <p><span class="badge bg-secondary">viewer</span> — Đăng nhập được nhưng <strong>không có</strong> attendance dashboard</p>
+        <hr style="border-color:#f1f5f9">
+        <p><strong>Lưu ý:</strong> Mật khẩu mặc định ban đầu là <code>admin123</code> — hãy đổi ngay sau lần đăng nhập đầu tiên.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal fade" id="addUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header">
+        <h5 class="modal-title">Thêm User Mới</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('save_user') }}">
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">Username *</label>
+              <input type="text" name="username" class="form-control" placeholder="hr_user" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Tên hiển thị</label>
+              <input type="text" name="display_name" class="form-control" placeholder="Nguyễn Văn A">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Password *</label>
+              <input type="password" name="password" id="new_pw_modal" class="form-control" minlength="8"
+                     oninput="checkStrength(this.value,'bar_modal','criteria_modal')" required>
+              <div class="mt-2"><div class="progress" style="height:5px"><div id="bar_modal" class="progress-bar" style="width:0%;transition:.3s"></div></div></div>
+              <div id="criteria_modal" class="mt-1" style="font-size:.72rem"></div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Role *</label>
+              <select name="role" id="roleSelect" class="form-select" required onchange="toggleEmpField(this.value)">
+                <option value="viewer">viewer — không có attendance</option>
+                <option value="hr">hr — full attendance access</option>
+                <option value="admin">admin — toàn quyền</option>
+                <option value="employee">employee — cá nhân</option>
+              </select>
+            </div>
+            <div class="col-12" id="empAssignRow" style="display:none">
+              <label class="form-label">Gán cho nhân viên *</label>
+              <select name="employee_id" id="empSelect" class="form-select">
+                <option value="">— chọn nhân viên —</option>
+                {% for e in employees %}
+                <option value="{{ e.id }}">{{ e.name }}{% if e.department %} ({{ e.department }}){% endif %}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Nhân viên này sẽ chỉ thấy dữ liệu chấm công của bản thân.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Department <small style="color:#94a3b8">(tuỳ chọn)</small></label>
+              <input type="text" name="department" class="form-control" placeholder="Delivery">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary">Tạo User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEmpField(role) {
+  const row = document.getElementById('empAssignRow');
+  const sel  = document.getElementById('empSelect');
+  if (role === 'employee') {
+    row.style.display = '';
+    sel.required = true;
+  } else {
+    row.style.display = 'none';
+    sel.required = false;
+    sel.value = '';
+  }
+}
+
+// Also auto-fill display_name when employee is selected
+document.addEventListener('DOMContentLoaded', function () {
+  const empSel = document.getElementById('empSelect');
+  if (empSel) {
+    empSel.addEventListener('change', function () {
+      const opt = this.options[this.selectedIndex];
+      const nameField = document.querySelector('#addUserModal input[name="display_name"]');
+      if (nameField && opt.value) {
+        nameField.value = opt.text.split('(')[0].trim();
+      }
+    });
+  }
+});
+
+function checkStrength(pw, barId, criteriaId) {
+  const criteria = [
+    { test: pw.length >= 8,          label: '8+ ký tự' },
+    { test: /[A-Z]/.test(pw),        label: 'Chữ HOA (A-Z)' },
+    { test: /[0-9]/.test(pw),        label: 'Chữ số (0-9)' },
+    { test: /[^A-Za-z0-9]/.test(pw), label: 'Ký tự đặc biệt (!@#...)' },
+    { test: pw.length >= 12,         label: '12+ ký tự (bonus)' },
+  ];
+  const score = criteria.filter(c => c.test).length;
+  const levels = [
+    { label: 'Rất yếu',    color: '#ef4444' },
+    { label: 'Yếu',        color: '#f97316' },
+    { label: 'Trung bình', color: '#eab308' },
+    { label: 'Mạnh',       color: '#22c55e' },
+    { label: 'Rất mạnh',   color: '#16a34a' },
+  ];
+  const lv  = levels[Math.max(0, score - 1)] || levels[0];
+  const bar = document.getElementById(barId);
+  if (bar) {
+    bar.style.width      = (pw.length ? score * 20 : 0) + '%';
+    bar.style.background = lv.color;
+  }
+  const cEl = document.getElementById(criteriaId);
+  if (cEl) {
+    cEl.innerHTML = pw.length
+      ? '<span style="color:' + lv.color + ';font-weight:700">' + lv.label + '</span> &nbsp;' +
+        criteria.slice(0,4).map(c =>
+          '<span style="color:' + (c.test ? '#16a34a' : '#94a3b8') + '">' +
+          (c.test ? '✓' : '✗') + ' ' + c.label + '</span>'
+        ).join(' · ')
+      : '';
+  }
+}
+</script>
+{% endblock %}
+

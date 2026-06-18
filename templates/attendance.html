@@ -1,0 +1,413 @@
+{% extends 'base.html' %}
+{% block title %}Attendance Records{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-table me-2"></i>Attendance Records</h4>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('preview_export', **filters) }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-eye me-1"></i> Preview & Export
+    </a>
+    <a href="{{ url_for('export_attendance', **filters) }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-download me-1"></i> Export Full
+    </a>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-upload me-1"></i> Upload File
+    </a>
+    <form method="POST" action="{{ url_for('sync_attendance_from_employees') }}" style="display:inline"
+          onsubmit="return confirm('Sync department/role/name từ Employees cho toàn bộ records?')">
+      <button class="btn btn-outline-secondary btn-sm" title="Cập nhật Department từ danh sách Employees">
+        <i class="bi bi-arrow-repeat me-1"></i> Sync Dept
+      </button>
+    </form>
+    {% if filters.get('month') %}
+    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteMonthModal"
+            title="Xóa records của tháng đang lọc">
+      <i class="bi bi-trash me-1"></i> Xóa Tháng
+    </button>
+    {% endif %}
+    <button class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteAllModal"
+            title="Xóa toàn bộ dữ liệu">
+      <i class="bi bi-database-x me-1"></i> Xóa Tất Cả
+    </button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">THÁNG</label>
+        <select name="month" class="form-select form-select-sm">
+          <option value="">Tất cả</option>
+          {% for m in months %}
+          <option value="{{ m }}" {{ 'selected' if filters.get('month') == m }}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">KỲ LƯƠNG</label>
+        <select name="period" class="form-select form-select-sm">
+          <option value="">Cả tháng</option>
+          <option value="1" {{ 'selected' if filters.get('period') == '1' }}>Kỳ 1 (1–15)</option>
+          <option value="2" {{ 'selected' if filters.get('period') == '2' }}>Kỳ 2 (16–31)</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">NHÂN VIÊN</label>
+        <select name="employee_id" class="form-select form-select-sm">
+          <option value="">Tất cả</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}" {{ 'selected' if filters.get('employee_id') == e.id }}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label mb-1" style="font-size:.78rem;color:#64748b">STATUS</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Tất cả</option>
+          {% for s in status_list %}
+          <option value="{{ s }}" {{ 'selected' if filters.get('status') == s }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-auto d-flex align-items-end gap-2">
+        <div class="form-check mb-1">
+          <input class="form-check-input" type="checkbox" name="weekday_only" value="1" id="chkWeekday"
+                 {{ 'checked' if filters.get('weekday_only') }}>
+          <label class="form-check-label" for="chkWeekday" style="font-size:.82rem;color:#374151">
+            Chỉ ngày thường
+          </label>
+        </div>
+      </div>
+      <div class="col-md d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-funnel me-1"></i>Lọc
+        </button>
+        <a href="{{ url_for('attendance') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <div class="card-header py-3 d-flex justify-content-between">
+    <span>Kết quả: <strong>{{ records|length }}</strong> records</span>
+  </div>
+  {% if records %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" id="attendanceTable">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Name</th>
+          <th>Department</th>
+          <th>Clock In</th>
+          <th>Clock Out</th>
+          <th>Actual</th>
+          <th>Net</th>
+          <th>Paid</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th style="width:48px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr class="{{ status_row_class(r.status) }} att-row" id="arow-{{ r.id }}"
+            onclick="openDetail({{ r.id }}, event)" style="cursor:pointer"
+            title="Click để xem chi tiết">
+          <td>{{ r.date }}</td>
+          <td>
+            <strong>{{ r.employee_name }}</strong>
+            {% if r.lark_name and r.lark_name != r.employee_name %}
+            <br><small style="color:#94a3b8">{{ r.lark_name }}</small>
+            {% endif %}
+          </td>
+          <td>{{ r.department }}</td>
+          <td>{{ r.clock_in or '—' }}</td>
+          <td>{{ r.clock_out or '—' }}</td>
+          <td>{{ r.actual_hrs or '—' }}</td>
+          <td>{{ r.net_hrs or '—' }}</td>
+          <td>
+            {% if r.paid_hrs is not none and r.paid_hrs != '' %}
+            <strong>{{ r.paid_hrs }}h</strong>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge {{ status_badge_class(r.status) }} badge-status">{{ r.status }}</span>
+          </td>
+          <td style="max-width:220px;white-space:normal;font-size:.78rem;color:#64748b">
+            {{ r.notes or '' }}
+          </td>
+          <td>
+            <button class="btn btn-outline-danger btn-sm py-0 px-1"
+                    onclick="deleteRecord({{ r.id }})"
+                    title="Xóa record này">
+              <i class="bi bi-trash" style="font-size:.8rem"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-5 text-center" style="color:#94a3b8">
+    <i class="bi bi-inbox" style="font-size:2rem"></i>
+    <p class="mt-3">Không có records nào.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal: Xóa tháng -->
+{% if filters.get('month') %}
+<div class="modal fade" id="deleteMonthModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Xác Nhận Xóa Tháng</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2">
+          <strong>Tháng:</strong> {{ filters.get('month') }}
+          {% if filters.get('period') == '1' %} — Kỳ 1 (ngày 1–15)
+          {% elif filters.get('period') == '2' %} — Kỳ 2 (ngày 16–31)
+          {% endif %}
+          <br><strong>Số records:</strong> {{ records|length }}
+        </div>
+        <p class="text-danger mb-0"><i class="bi bi-info-circle me-1"></i>Không thể hoàn tác. Hãy export trước khi xóa.</p>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+        <form method="POST" action="{{ url_for('delete_attendance') }}" style="display:inline">
+          <input type="hidden" name="month"  value="{{ filters.get('month') }}">
+          <input type="hidden" name="period" value="{{ filters.get('period', '') }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i>Xóa {{ records|length }} Records
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Modal: Xóa tất cả -->
+<div class="modal fade" id="deleteAllModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title text-danger"><i class="bi bi-database-x me-2"></i>Xóa Toàn Bộ Dữ Liệu</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Hành động này sẽ xóa <strong>tất cả records của mọi tháng</strong> trong hệ thống.</p>
+        <div class="alert alert-danger py-2">
+          <i class="bi bi-exclamation-circle me-1"></i>Không thể hoàn tác. Đảm bảo đã export đầy đủ trước khi tiếp tục.
+        </div>
+        <label class="form-label" style="font-size:.85rem">Nhập <strong>XOA</strong> để xác nhận:</label>
+        <input type="text" id="deleteAllConfirm" class="form-control" placeholder="XOA" autocomplete="off">
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+        <form method="POST" action="{{ url_for('delete_all_attendance') }}" id="deleteAllForm">
+          <button type="submit" class="btn btn-danger" id="deleteAllBtn" disabled>
+            <i class="bi bi-database-x me-1"></i>Xóa Toàn Bộ
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="border-radius:14px;border:none">
+      <div class="modal-header border-0 pb-0 pt-4 px-4">
+        <div>
+          <h5 class="modal-title mb-1" id="detailTitle">—</h5>
+          <div id="detailSubtitle" style="font-size:.82rem;color:#64748b"></div>
+        </div>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body px-4 pb-4" id="detailBody">
+        <div class="text-center py-4" style="color:#94a3b8">
+          <div class="spinner-border spinner-border-sm"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── Delete single record ── */
+function deleteRecord(id) {
+  if (!confirm('Xóa record này?')) return;
+  fetch(`/attendance/delete/${id}`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const row = document.getElementById(`arow-${id}`);
+        row.style.transition = 'opacity .3s';
+        row.style.opacity = '0';
+        setTimeout(() => row.remove(), 300);
+        const countEl = document.querySelector('.card-header strong');
+        if (countEl) countEl.textContent = parseInt(countEl.textContent) - 1;
+      }
+    });
+}
+
+/* ── Delete all confirm ── */
+document.getElementById('deleteAllConfirm').addEventListener('input', function() {
+  document.getElementById('deleteAllBtn').disabled = this.value.trim() !== 'XOA';
+});
+
+/* ── Detail modal ── */
+function openDetail(id, event) {
+  if (event.target.closest('button')) return; // don't open when clicking delete btn
+  const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+  document.getElementById('detailTitle').textContent    = '…';
+  document.getElementById('detailSubtitle').textContent = '';
+  document.getElementById('detailBody').innerHTML       =
+    '<div class="text-center py-4" style="color:#94a3b8"><div class="spinner-border spinner-border-sm"></div></div>';
+  modal.show();
+
+  fetch(`/attendance/${id}/detail`)
+    .then(r => r.json())
+    .then(({ ok, record }) => {
+      if (!ok) return;
+      renderDetail(record);
+    });
+}
+
+function renderDetail(r) {
+  document.getElementById('detailTitle').innerHTML =
+    `<i class="bi bi-person-circle me-2" style="color:#3b82f6"></i>${r.employee_name || r.lark_name}`;
+  document.getElementById('detailSubtitle').innerHTML =
+    `${r.date} &nbsp;·&nbsp; ${r.department || '—'} &nbsp;·&nbsp; ${r.role || '—'}` +
+    (r.lark_name && r.lark_name !== r.employee_name
+      ? `<span style="color:#94a3b8"> (Lark: ${r.lark_name})</span>` : '');
+
+  const statusClass = _badgeClass(r.status || '');
+  const hrs = (v, unit='h') => (v !== null && v !== '' && v !== undefined) ? `<strong>${v}${unit}</strong>` : '<span style="color:#94a3b8">—</span>';
+
+  /* ── detect edited record + parse clock_out from action_taken if missing ── */
+  const isEdited = !!(r.action_taken || r.approved_by);
+  let effectiveCo = r.clock_out || '';
+  let coFromNote  = false;
+  if (!effectiveCo && r.action_taken) {
+    const m = r.action_taken.match(/\b(\d{1,2}:\d{2})\b/);
+    if (m) { effectiveCo = m[1]; coFromNote = true; }
+  }
+
+  /* ── time line ── */
+  let timeHtml = '';
+  if (r.clock_in || effectiveCo) {
+    const ci      = r.clock_in  || '—';
+    const co      = effectiveCo || '—';
+    const coColor = effectiveCo ? (coFromNote ? '#7c3aed' : '#1d4ed8') : '#dc2626';
+    const coBg    = effectiveCo ? (coFromNote ? '#f5f3ff' : '#eff6ff') : '#fef2f2';
+    const coNote  = coFromNote  ? `<div style="font-size:.6rem;color:#7c3aed;margin-top:2px">✏️ từ ghi chú</div>` : '';
+    timeHtml = `
+      <div class="d-flex align-items-center gap-2 my-3">
+        <div class="text-center px-3 py-2" style="background:#f0fdf4;border-radius:10px;min-width:90px">
+          <div style="font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Clock In</div>
+          <div style="font-size:1.3rem;font-weight:700;color:#15803d">${ci}</div>
+        </div>
+        <i class="bi bi-arrow-right" style="color:#94a3b8;font-size:1.2rem"></i>
+        <div class="text-center px-3 py-2" style="background:${coBg};border-radius:10px;min-width:90px">
+          <div style="font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Clock Out</div>
+          <div style="font-size:1.3rem;font-weight:700;color:${coColor}">${co}</div>
+          ${coNote}
+        </div>
+      </div>`;
+  }
+
+  /* ── hours grid ── */
+  const hoursHtml = `
+    <div class="row g-2 mb-3">
+      <div class="col-3"><div class="p-2 text-center" style="background:#f8fafc;border-radius:8px">
+        <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Actual</div>
+        <div style="font-size:.95rem">${hrs(r.actual_hrs)}</div>
+      </div></div>
+      <div class="col-3"><div class="p-2 text-center" style="background:#f8fafc;border-radius:8px">
+        <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Break</div>
+        <div style="font-size:.95rem">${hrs(r.break_hrs)}</div>
+      </div></div>
+      <div class="col-3"><div class="p-2 text-center" style="background:#f8fafc;border-radius:8px">
+        <div style="font-size:.68rem;color:#94a3b8;text-transform:uppercase">Net</div>
+        <div style="font-size:.95rem">${hrs(r.net_hrs)}</div>
+      </div></div>
+      <div class="col-3"><div class="p-2 text-center" style="background:#eff6ff;border-radius:8px;border:1px solid #dbeafe">
+        <div style="font-size:.68rem;color:#3b82f6;text-transform:uppercase;font-weight:600">Paid</div>
+        <div style="font-size:.95rem;color:#1d4ed8">${hrs(r.paid_hrs)}</div>
+      </div></div>
+    </div>`;
+
+  /* ── notes ── */
+  const notesHtml = r.notes ? `
+    <div class="mb-3 p-3" style="background:#fffbeb;border-radius:8px;border-left:3px solid #fbbf24">
+      <div style="font-size:.72rem;color:#92400e;text-transform:uppercase;font-weight:600;margin-bottom:4px">
+        <i class="bi bi-sticky me-1"></i>Ghi Chú
+      </div>
+      <div style="font-size:.85rem;color:#78350f;line-height:1.6">${r.notes.replace(/\|/g, '<br>• ')}</div>
+    </div>` : '';
+
+  /* ── action taken ── */
+  const isOk = (r.status || '').includes('OK');
+  let actionHtml = '';
+  if (r.action_taken) {
+    actionHtml = `
+      <div class="p-3" style="background:#f0fdf4;border-radius:8px;border-left:3px solid #22c55e">
+        <div style="font-size:.72rem;color:#15803d;text-transform:uppercase;font-weight:600;margin-bottom:6px">
+          <i class="bi bi-check-circle me-1"></i>Đã Xử Lý
+        </div>
+        <div style="font-size:.88rem;color:#166534"><strong>${r.action_taken}</strong></div>
+        <div style="font-size:.78rem;color:#64748b;margin-top:4px">
+          Approved by <strong>${r.approved_by || '—'}</strong>
+          ${r.approved_at ? ' · ' + r.approved_at : ''}
+        </div>
+      </div>`;
+  } else if (!isOk) {
+    actionHtml = `
+      <div class="p-3" style="background:#fef2f2;border-radius:8px;border-left:3px solid #fca5a5">
+        <div style="font-size:.72rem;color:#b91c1c;text-transform:uppercase;font-weight:600">
+          <i class="bi bi-clock me-1"></i>Chưa xử lý — cần review
+        </div>
+      </div>`;
+  }
+
+  /* ── assemble ── */
+  document.getElementById('detailBody').innerHTML = `
+    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+      <span class="badge ${statusClass} badge-status" style="font-size:.82rem">${r.status}</span>
+      ${isEdited ? `<span style="background:#f5f3ff;color:#7c3aed;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">✏️ Đã chỉnh sửa</span>` : ''}
+      <span style="font-size:.78rem;color:#94a3b8">ID: ${r.id} &nbsp;·&nbsp; ${r.created_at ? r.created_at.slice(0,16) : ''}</span>
+    </div>
+    ${timeHtml}
+    ${hoursHtml}
+    ${notesHtml}
+    ${actionHtml}
+  `;
+}
+
+function _badgeClass(s) {
+  if (s.includes('Not Matched'))   return 'badge-notmatch';
+  if (s.includes('Missing'))       return 'badge-missing';
+  if (s.includes('Under Hours'))   return 'badge-under';
+  if (s.includes('Overtime'))      return 'badge-ot';
+  if (s.includes('After 20'))      return 'badge-late';
+  if (s.includes('Late Clock In')) return 'badge-latein';
+  if (s.includes('Manual'))        return 'badge-manual';
+  return 'badge-ok';
+}
+</script>
+{% endblock %}

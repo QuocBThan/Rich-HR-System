@@ -1,0 +1,224 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — RichHR{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h4>Dashboard</h4>
+    <div class="page-sub">Tháng {{ current_month }}/{{ current_year }}</div>
+  </div>
+  <a href="{{ url_for('upload') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-cloud-upload me-1"></i> Upload Lark File
+  </a>
+</div>
+
+<!-- Metric strip -->
+<div class="card mb-4" style="padding: 0; overflow: hidden;">
+  <div class="d-flex" style="divide-x: 1px solid var(--border);">
+    <div class="metric-cell">
+      <div class="metric-val">{{ stats.total_records }}</div>
+      <div class="metric-lbl"><i class="bi bi-journal-text me-1"></i>Tổng Records</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-cell">
+      {% if stats.review_count > 0 %}
+      <div class="metric-val" style="color:#dc2626">{{ stats.review_count }}</div>
+      <div class="metric-lbl"><i class="bi bi-flag me-1" style="color:#dc2626"></i>Cần Review
+        <span style="background:#fef2f2;color:#dc2626;border-radius:4px;padding:1px 6px;font-size:.65rem;font-weight:700;margin-left:4px">Cần xử lý</span>
+      </div>
+      {% else %}
+      <div class="metric-val" style="color:#16a34a">{{ stats.review_count }}</div>
+      <div class="metric-lbl"><i class="bi bi-check-circle me-1" style="color:#16a34a"></i>Review Queue</div>
+      {% endif %}
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-cell">
+      <div class="metric-val">{{ stats.employee_count }}</div>
+      <div class="metric-lbl"><i class="bi bi-people me-1"></i>Nhân Viên</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-cell">
+      <div class="metric-val">{{ employees_leave | length }}</div>
+      <div class="metric-lbl"><i class="bi bi-person-check me-1"></i>Đang theo dõi phép</div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick actions -->
+<div class="d-flex gap-2 mb-4 flex-wrap">
+  <a href="{{ url_for('review') }}" class="quick-action {% if stats.review_count > 0 %}qa-warn{% endif %}">
+    <i class="bi bi-flag"></i>
+    <span>Review Queue</span>
+    {% if stats.review_count > 0 %}<span class="qa-badge">{{ stats.review_count }}</span>{% endif %}
+  </a>
+  <a href="{{ url_for('report') }}" class="quick-action">
+    <i class="bi bi-bar-chart"></i>
+    <span>Monthly Report</span>
+  </a>
+  <a href="{{ url_for('attendance') }}" class="quick-action">
+    <i class="bi bi-table"></i>
+    <span>Attendance Records</span>
+  </a>
+  <a href="{{ url_for('employees') }}" class="quick-action">
+    <i class="bi bi-people"></i>
+    <span>Employees &amp; Aliases</span>
+  </a>
+  <a href="{{ url_for('exports') }}" class="quick-action">
+    <i class="bi bi-archive"></i>
+    <span>Lịch Sử Export</span>
+  </a>
+</div>
+
+<!-- Employee leave table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Nhân Viên &amp; Phép Năm {{ current_year }}</span>
+    <span style="font-size:.72rem;color:var(--ink-4);font-weight:400">
+      Đã tích lũy {{ current_month }} tháng · {{ current_month }} ngày phép/người
+    </span>
+  </div>
+  {% if employees_leave %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Nhân Viên</th>
+          <th>Phòng Ban</th>
+          <th>Loại HĐ</th>
+          <th>Ca Làm</th>
+          <th class="text-center">Đã dùng</th>
+          <th class="text-center">Còn lại</th>
+          <th style="min-width:140px">Phép Năm</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in employees_leave %}
+        <tr>
+          <td>
+            <span style="font-weight:600;color:var(--ink)">{{ e.name }}</span>
+            {% if e.role %}<br><span style="font-size:.72rem;color:var(--ink-4)">{{ e.role }}</span>{% endif %}
+          </td>
+          <td style="color:var(--ink-3)">{{ e.department or '—' }}</td>
+          <td>
+            {% if e.employment_type == 'part_time' %}
+              <span class="badge" style="background:#f1f5f9;color:#475569">Part-time</span>
+            {% else %}
+              <span class="badge" style="background:#eff6ff;color:#1d4ed8">Full-time</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums">
+            {{ e.start_time }} – {{ e.end_time }}
+          </td>
+          {% if e.employment_type == 'part_time' %}
+          <td colspan="3" class="text-center" style="color:var(--ink-4);font-style:italic">Không áp dụng</td>
+          {% else %}
+          <td class="text-center" style="color:var(--ink-3);font-variant-numeric:tabular-nums">{{ e.leave_used }}</td>
+          <td class="text-center" style="font-weight:600;font-variant-numeric:tabular-nums">
+            {% if e.leave_remaining > 0 %}
+              <span style="color:#16a34a">{{ e.leave_remaining }}</span>
+            {% elif e.leave_remaining == 0 %}
+              <span style="color:#d97706">0</span>
+            {% else %}
+              <span style="color:#dc2626">{{ e.leave_remaining }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% set pct = ((e.leave_used / e.leave_accrued) * 100) | int if e.leave_accrued else 0 %}
+            <div style="display:flex;align-items:center;gap:7px">
+              <div style="flex:1;height:5px;background:#f1f5f9;border-radius:99px;overflow:hidden">
+                <div style="width:{{ [pct,100]|min }}%;height:100%;background:{{ '#dc2626' if pct >= 100 else '#d97706' if pct >= 75 else '#2563eb' }};border-radius:99px"></div>
+              </div>
+              <span style="font-size:.72rem;color:var(--ink-4);white-space:nowrap;font-variant-numeric:tabular-nums">{{ e.leave_used }}/{{ e.leave_accrued }}</span>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-5 text-center" style="color:var(--ink-4)">
+    <i class="bi bi-people" style="font-size:2rem;display:block;margin-bottom:12px"></i>
+    <div style="font-weight:500;margin-bottom:6px;color:var(--ink-2)">Chưa có nhân viên nào</div>
+    <div style="font-size:.8rem;margin-bottom:14px">Thêm nhân viên để bắt đầu theo dõi chấm công</div>
+    <a href="{{ url_for('employees') }}" class="btn btn-primary btn-sm">Thêm nhân viên</a>
+  </div>
+  {% endif %}
+</div>
+
+{% block scripts %}
+<style>
+/* Metric strip */
+.metric-cell {
+  flex: 1;
+  padding: 18px 22px;
+  min-width: 0;
+}
+.metric-val {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.5px;
+}
+.metric-lbl {
+  font-size: .72rem;
+  color: var(--ink-3);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+.metric-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 14px 0;
+}
+
+/* Quick actions */
+.quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: .8rem;
+  font-weight: 500;
+  transition: background .12s, border-color .12s, color .12s, box-shadow .12s;
+  box-shadow: var(--shadow-xs);
+}
+.quick-action i { font-size: .88rem; color: var(--ink-4); transition: color .12s; }
+.quick-action:hover {
+  background: var(--bg);
+  border-color: var(--border-strong);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.quick-action:hover i { color: var(--ink-2); }
+.quick-action.qa-warn {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+.quick-action.qa-warn i { color: #dc2626; }
+.quick-action.qa-warn:hover { background: #fef2f2; border-color: #fca5a5; }
+.qa-badge {
+  background: #dc2626;
+  color: #fff;
+  border-radius: 99px;
+  padding: 0 6px;
+  font-size: .65rem;
+  font-weight: 700;
+  line-height: 1.6;
+}
+</style>
+{% endblock %}
+{% endblock %}

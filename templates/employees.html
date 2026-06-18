@@ -1,0 +1,392 @@
+{% extends 'base.html' %}
+{% block title %}Employees & Aliases{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-people me-2"></i>Employees & Aliases</h4>
+</div>
+
+<div class="row g-4">
+
+  <!-- LEFT: Employees -->
+  <div class="col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <span>Danh Sách Nhân Viên ({{ employees|length }})</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+          <i class="bi bi-plus-lg me-1"></i> Thêm
+        </button>
+      </div>
+      {% if employees %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:.83rem">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Tên</th>
+              <th>Role / Bộ Phận</th>
+              <th>Loại HĐ</th>
+              <th>Giờ làm</th>
+              <th style="min-width:180px">Ngày Làm Việc</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in employees %}
+            {% set wdays = (e.work_days or '0,1,2,3,4').split(',') %}
+            <tr>
+              <td><code>{{ e.id }}</code></td>
+              <td><strong>{{ e.name }}</strong></td>
+              <td>
+                <span style="color:#475569">{{ e.role }}</span>
+                {% if e.department %}<br><small style="color:#94a3b8">{{ e.department }}</small>{% endif %}
+              </td>
+              <td>
+                {% if e.employment_type == 'part_time' %}
+                  <span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600;font-size:.75rem">Part-time</span>
+                {% else %}
+                  <span class="badge" style="background:#dbeafe;color:#1e40af;font-weight:600;font-size:.75rem">Full-time</span>
+                {% endif %}
+              </td>
+              <td style="white-space:nowrap;color:#64748b">
+                {{ e.start_time }} – {{ e.end_time }}<br>
+                <small style="color:#94a3b8">break {{ e.break_hrs }}h</small>
+              </td>
+              <td>
+                <div class="d-flex gap-1 flex-wrap">
+                  {% set DAY_LABELS = ['T2','T3','T4','T5','T6','T7','CN'] %}
+                  {% for i in range(7) %}
+                  {% set active = (i|string) in wdays %}
+                  <span class="day-chip {{ 'day-chip-on' if active else 'day-chip-off' }}">
+                    {{ DAY_LABELS[i] }}
+                  </span>
+                  {% endfor %}
+                </div>
+              </td>
+              <td>
+                <button class="btn btn-outline-primary btn-sm"
+                        data-emp='{{ e | tojson }}'
+                        onclick="editEmployee(JSON.parse(this.dataset.emp))">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST" action="{{ url_for('delete_employee', emp_id=e.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Xóa nhân viên {{ e.name }}?')">
+                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="p-4 text-center" style="color:#94a3b8">Chưa có nhân viên nào.</div>
+      {% endif %}
+    </div>
+
+    <!-- Aliases -->
+    <div class="card">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <span>Employee Aliases — Tên Lark ({{ aliases|length }})</span>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addAliasModal">
+          <i class="bi bi-plus-lg me-1"></i> Thêm
+        </button>
+      </div>
+      {% if aliases %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:.83rem">
+          <thead>
+            <tr><th>Lark Name</th><th>→ Nhân Viên</th><th>Notes</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for a in aliases %}
+            <tr>
+              <td><code>{{ a.lark_name }}</code></td>
+              <td>{{ a.employee_name }} <small style="color:#94a3b8">({{ a.employee_id }})</small></td>
+              <td style="color:#64748b;font-size:.82rem">{{ a.notes }}</td>
+              <td>
+                <form method="POST" action="{{ url_for('delete_alias', alias_id=a.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Xóa alias này?')">
+                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="p-4 text-center" style="color:#94a3b8">Chưa có alias nào.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- RIGHT: Guide -->
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header py-3"><i class="bi bi-calendar-week me-2"></i>Ngày Làm Việc</div>
+      <div class="card-body p-4" style="font-size:.83rem;line-height:1.9;color:#475569">
+        <p>Cấu hình <strong>những ngày trong tuần</strong> mà nhân viên phải đi làm.</p>
+        <p>Ví dụ: <strong>Nhật Hà</strong> chỉ làm T3–T4–T5 thì chỉ tick 3 ô đó.</p>
+        <div class="d-flex gap-1 my-2">
+          <span class="day-chip day-chip-on">T3</span>
+          <span class="day-chip day-chip-on">T4</span>
+          <span class="day-chip day-chip-on">T5</span>
+          <span class="day-chip day-chip-off">T2</span>
+          <span class="day-chip day-chip-off">T6</span>
+        </div>
+        <hr style="border-color:#f1f5f9">
+        <p>Thông tin này được dùng trong <strong>Preview Export</strong> để phân biệt:</p>
+        <ul style="padding-left:16px">
+          <li><span style="color:#94a3b8">■</span> Ngày nghỉ theo lịch (off day)</li>
+          <li><span style="color:#ef4444">■</span> Vắng không có lý do</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header py-3"><i class="bi bi-info-circle me-2"></i>Aliases</div>
+      <div class="card-body p-4" style="font-size:.83rem;line-height:1.9;color:#475569">
+        <p><strong>Employee Aliases</strong> là tên nhân viên như hiển thị trên file Lark export.</p>
+        <p>Ví dụ: Lark hiển thị <code>Justin Than</code> hoặc <code>Quoc Than</code> → cả hai alias trỏ về <code>EMP001</code>.</p>
+        <hr style="border-color:#f1f5f9">
+        <ul style="padding-left:16px">
+          <li>Thêm tất cả dạng tên có thể xuất hiện trong Lark</li>
+          <li>Hệ thống match <em>case-insensitive</em></li>
+          <li>Không match → record vào <strong>❌ Name Not Matched</strong></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Employee Modal -->
+<div class="modal fade" id="addEmpModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header" style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+        <h5 class="modal-title" id="empModalTitle">Thêm Nhân Viên</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('save_employee') }}">
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">Employee ID *</label>
+              <input type="text" name="id" id="emp-id" class="form-control" placeholder="EMP001" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Tên *</label>
+              <input type="text" name="name" id="emp-name" class="form-control" placeholder="Nguyễn Văn A" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Role</label>
+              <input type="text" name="role" id="emp-role" class="form-control" placeholder="Delivery">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Department</label>
+              <input type="text" name="department" id="emp-dept" class="form-control" placeholder="Marketing Team">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Loại Hợp Đồng</label>
+              <div class="d-flex gap-3">
+                <label class="d-flex align-items-center gap-2" style="cursor:pointer">
+                  <input type="radio" name="employment_type" id="emp-type-full" value="full_time" checked>
+                  <span class="badge" style="background:#dbeafe;color:#1e40af;font-size:.82rem;padding:5px 12px">Full-time</span>
+                  <small style="color:#64748b">Được nhận phép năm (1 ngày/tháng)</small>
+                </label>
+                <label class="d-flex align-items-center gap-2" style="cursor:pointer">
+                  <input type="radio" name="employment_type" id="emp-type-part" value="part_time">
+                  <span class="badge" style="background:#f1f5f9;color:#64748b;font-size:.82rem;padding:5px 12px">Part-time</span>
+                  <small style="color:#64748b">Không có phép năm</small>
+                </label>
+              </div>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Giờ vào</label>
+              <input type="text" name="start_time" id="emp-start" class="form-control" placeholder="09:30" value="09:30">
+            </div>
+            <div class="col-4">
+              <label class="form-label">Giờ ra</label>
+              <input type="text" name="end_time" id="emp-end" class="form-control" placeholder="18:30" value="18:30">
+            </div>
+            <div class="col-2">
+              <label class="form-label">Break (h)</label>
+              <input type="number" name="break_hrs" id="emp-break" class="form-control" value="1" step="0.5" min="0">
+            </div>
+            <div class="col-2">
+              <label class="form-label">Max h/ngày</label>
+              <input type="number" name="max_hrs_day" id="emp-max" class="form-control" value="8" step="0.5" min="1">
+            </div>
+          </div>
+
+          <!-- Work Days -->
+          <div class="mt-4 p-3" style="background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0">
+            <div class="mb-2" style="font-weight:600;font-size:.85rem;color:#374151">
+              <i class="bi bi-calendar-check me-2" style="color:#3b82f6"></i>Ngày Làm Việc Trong Tuần
+            </div>
+            <div style="font-size:.75rem;color:#64748b;margin-bottom:12px">
+              Tick những ngày nhân viên này <strong>bắt buộc đi làm</strong>. Những ngày không tick sẽ được hiển thị là "ngày nghỉ" trong bảng chấm công.
+            </div>
+            <div class="d-flex gap-2 flex-wrap" id="workDayPicker">
+              {% set DAY_LABELS = [('0','Thứ 2','T2'), ('1','Thứ 3','T3'), ('2','Thứ 4','T4'),
+                                   ('3','Thứ 5','T5'), ('4','Thứ 6','T6'), ('5','Thứ 7','T7'), ('6','Chủ Nhật','CN')] %}
+              {% for val, label, short in DAY_LABELS %}
+              <label class="workday-toggle" title="{{ label }}">
+                <input type="checkbox" name="work_days" value="{{ val }}"
+                       id="wd-{{ val }}"
+                       {{ 'checked' if val in ['0','1','2','3','4'] else '' }}>
+                <span class="workday-label">{{ short }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="mt-2 d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setWorkDays('01234')">T2–T6</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setWorkDays('123')">T3–T4–T5</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setWorkDays('1234')">T3–T6</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setWorkDays('0123456')">Tất cả</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setWorkDays('')">Xóa hết</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="background:#f8fafc">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Lưu & Cập Nhật</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Alias Modal -->
+<div class="modal fade" id="addAliasModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header">
+        <h5 class="modal-title">Thêm Alias</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('save_alias') }}">
+        <div class="modal-body p-4">
+          <div class="mb-3">
+            <label class="form-label">Lark Name * <small style="color:#94a3b8">(chính xác như trong file Lark)</small></label>
+            <input type="text" name="lark_name" class="form-control" placeholder="Justin Than" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Employee *</label>
+            <select name="employee_id" class="form-select" required>
+              <option value="">-- Chọn nhân viên --</option>
+              {% for e in employees %}
+              <option value="{{ e.id }}">{{ e.id }} — {{ e.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <input type="text" name="notes" class="form-control" placeholder="Ghi chú (tuỳ chọn)">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+.day-chip {
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:99px;
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.3px;
+}
+.day-chip-on  { background:#dbeafe;color:#1e40af; }
+.day-chip-off { background:#f1f5f9;color:#94a3b8; }
+
+/* Workday toggle checkboxes styled as pills */
+.workday-toggle { cursor:pointer; display:inline-block; }
+.workday-toggle input[type=checkbox] { display:none; }
+.workday-label {
+  display:inline-block;
+  padding:5px 14px;
+  border-radius:99px;
+  font-size:.82rem;
+  font-weight:700;
+  border:2px solid #e2e8f0;
+  background:#f8fafc;
+  color:#94a3b8;
+  transition:all .15s;
+  cursor:pointer;
+  user-select:none;
+}
+.workday-toggle input:checked + .workday-label {
+  background:#3b82f6;
+  border-color:#3b82f6;
+  color:#fff;
+}
+.workday-toggle:hover .workday-label {
+  border-color:#93c5fd;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MODAL_ID = 'addEmpModal';
+
+function openAddModal() {
+  document.getElementById('empModalTitle').textContent = 'Thêm Nhân Viên';
+  document.getElementById('emp-id').value    = '';
+  document.getElementById('emp-id').readOnly = false;
+  document.getElementById('emp-name').value  = '';
+  document.getElementById('emp-role').value  = '';
+  document.getElementById('emp-dept').value  = '';
+  document.getElementById('emp-start').value = '09:30';
+  document.getElementById('emp-end').value   = '18:30';
+  document.getElementById('emp-break').value = '1';
+  document.getElementById('emp-max').value   = '8';
+  document.getElementById('emp-type-full').checked = true;
+  document.getElementById('emp-type-part').checked = false;
+  setWorkDays('01234');
+  new bootstrap.Modal(document.getElementById(MODAL_ID)).show();
+}
+
+function editEmployee(e) {
+  document.getElementById('empModalTitle').textContent = 'Sửa — ' + e.name;
+  document.getElementById('emp-id').value    = e.id;
+  document.getElementById('emp-id').readOnly = true;
+  document.getElementById('emp-name').value  = e.name;
+  document.getElementById('emp-role').value  = e.role  || '';
+  document.getElementById('emp-dept').value  = e.department || '';
+  document.getElementById('emp-start').value = e.start_time || '09:30';
+  document.getElementById('emp-end').value   = e.end_time   || '18:30';
+  document.getElementById('emp-break').value = e.break_hrs  || 1;
+  document.getElementById('emp-max').value   = e.max_hrs_day || 8;
+  const empType = e.employment_type || 'full_time';
+  document.getElementById('emp-type-full').checked = empType === 'full_time';
+  document.getElementById('emp-type-part').checked = empType === 'part_time';
+
+  // Populate work_days checkboxes
+  const days = (e.work_days || '0,1,2,3,4').split(',').map(d => d.trim());
+  for (let i = 0; i <= 6; i++) {
+    const cb = document.getElementById('wd-' + i);
+    if (cb) cb.checked = days.includes(String(i));
+  }
+
+  new bootstrap.Modal(document.getElementById(MODAL_ID)).show();
+}
+
+// Set specific days: string of digit chars e.g. '01234' for Mon-Fri
+function setWorkDays(dayStr) {
+  for (let i = 0; i <= 6; i++) {
+    const cb = document.getElementById('wd-' + i);
+    if (cb) cb.checked = dayStr.includes(String(i));
+  }
+}
+</script>
+{% endblock %}
