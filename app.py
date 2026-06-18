@@ -1278,6 +1278,34 @@ def save_user():
     return redirect(url_for('manage_users'))
 
 
+@app.route('/users/update/<int:user_id>', methods=['POST'])
+@hr_required
+def update_user(user_id):
+    if session.get('role') != 'admin':
+        return redirect(url_for('no_access'))
+    display_name = request.form.get('display_name', '').strip()
+    department   = request.form.get('department', '').strip()
+    email        = request.form.get('email', '').strip()
+    new_password = request.form.get('new_password', '').strip()
+    with db.get_db() as conn:
+        conn.execute(
+            'UPDATE users SET display_name=?, department=?, email=? WHERE id=?',
+            (display_name, department, email, user_id)
+        )
+        if new_password:
+            if len(new_password) < 8:
+                flash('Mật khẩu mới phải ít nhất 8 ký tự.', 'error')
+                return redirect(url_for('manage_users'))
+            conn.execute(
+                'UPDATE users SET password_hash=? WHERE id=?',
+                (generate_password_hash(new_password), user_id)
+            )
+    db.log_audit(session['user_id'], session['username'], 'USER_UPDATED',
+                 f'Cập nhật user ID {user_id}', request.remote_addr)
+    flash('✅ Đã cập nhật thông tin user.', 'success')
+    return redirect(url_for('manage_users'))
+
+
 @app.route('/users/delete/<int:user_id>', methods=['POST'])
 @hr_required
 def delete_user(user_id):

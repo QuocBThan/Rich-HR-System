@@ -18,7 +18,7 @@
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead>
-            <tr><th>Username</th><th>Tên hiển thị</th><th>Role</th><th>Nhân viên</th><th>Department</th><th>Tạo lúc</th><th></th></tr>
+            <tr><th>Username</th><th>Tên hiển thị</th><th>Role</th><th>Email</th><th>Nhân viên</th><th>Department</th><th>Tạo lúc</th><th></th></tr>
           </thead>
           <tbody>
             {% for u in users %}
@@ -30,6 +30,13 @@
                 <span class="badge {% if u.role == 'admin' %}bg-danger{% elif u.role == 'hr' %}bg-primary{% elif u.role == 'employee' %}bg-success{% else %}bg-secondary{% endif %}">
                   {{ u.role }}
                 </span>
+              </td>
+              <td style="font-size:.82rem;color:#475569">
+                {% if u.email %}
+                  <i class="bi bi-envelope me-1" style="color:#94a3b8"></i>{{ u.email }}
+                {% else %}
+                  <span style="color:#cbd5e1">—</span>
+                {% endif %}
               </td>
               <td>
                 {% if linked_emp %}
@@ -43,15 +50,22 @@
               <td>{{ u.department or '—' }}</td>
               <td style="font-size:.78rem;color:#94a3b8">{{ u.created_at[:10] }}</td>
               <td>
-                {% if u.id != current_user_id %}
-                <form method="POST" action="{{ url_for('delete_user', user_id=u.id) }}"
-                      style="display:inline"
-                      onsubmit="return confirm('Xóa user {{ u.username }}?')">
-                  <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
-                </form>
-                {% else %}
-                <span style="font-size:.75rem;color:#94a3b8">(bạn)</span>
-                {% endif %}
+                <div class="d-flex gap-1">
+                  <button class="btn btn-outline-secondary btn-sm" title="Sửa"
+                          onclick="openEdit({{ u | tojson | e }})">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  {% if u.id != current_user_id %}
+                  <form method="POST" action="{{ url_for('delete_user', user_id=u.id) }}"
+                        style="display:inline"
+                        onsubmit="return confirm('Xóa user {{ u.username }}?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                  </form>
+                  {% else %}
+                  <span style="font-size:.75rem;color:#94a3b8;align-self:center">(bạn)</span>
+                  {% endif %}
+                </div>
               </td>
             </tr>
             {% endfor %}
@@ -154,7 +168,11 @@
               </select>
               <div class="form-text">Nhân viên này sẽ chỉ thấy dữ liệu chấm công của bản thân.</div>
             </div>
-            <div class="col-12">
+            <div class="col-md-6">
+              <label class="form-label">Email <small style="color:#94a3b8">(để reset mật khẩu)</small></label>
+              <input type="email" name="email" class="form-control" placeholder="user@company.com">
+            </div>
+            <div class="col-md-6">
               <label class="form-label">Department <small style="color:#94a3b8">(tuỳ chọn)</small></label>
               <input type="text" name="department" class="form-control" placeholder="Delivery">
             </div>
@@ -163,6 +181,48 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
           <button type="submit" class="btn btn-primary">Tạo User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border-radius:12px;border:none">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Sửa User — <code id="edit-username"></code></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="" id="editForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Email <span style="color:#2563eb;font-weight:600">★ Cần để reset mật khẩu</span></label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                <input type="email" name="email" id="edit-email" class="form-control" placeholder="user@company.com">
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Tên hiển thị</label>
+              <input type="text" name="display_name" id="edit-display-name" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Department</label>
+              <input type="text" name="department" id="edit-department" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Mật khẩu mới <small style="color:#94a3b8">(để trống nếu không đổi)</small></label>
+              <input type="password" name="new_password" id="edit-password" class="form-control" minlength="8" placeholder="••••••••">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Lưu thay đổi</button>
         </div>
       </form>
     </div>
@@ -199,6 +259,16 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 });
+
+function openEdit(u) {
+  document.getElementById('edit-username').textContent    = u.username;
+  document.getElementById('edit-email').value            = u.email || '';
+  document.getElementById('edit-display-name').value     = u.display_name || '';
+  document.getElementById('edit-department').value       = u.department || '';
+  document.getElementById('edit-password').value         = '';
+  document.getElementById('editForm').action             = '/users/update/' + u.id;
+  new bootstrap.Modal(document.getElementById('editUserModal')).show();
+}
 
 function checkStrength(pw, barId, criteriaId) {
   const criteria = [
