@@ -52,7 +52,7 @@
               <td>
                 <div class="d-flex gap-1">
                   <button class="btn btn-outline-secondary btn-sm" title="Sửa"
-                          onclick="openEdit({{ u | tojson | e }})">
+                          onclick='openEdit({{ u | tojson }})'>
                     <i class="bi bi-pencil"></i>
                   </button>
                   {% if u.id != current_user_id %}
