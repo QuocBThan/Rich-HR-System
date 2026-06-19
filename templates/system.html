@@ -44,7 +44,8 @@
 
 <div class="row g-4">
 
-  <!-- ── GitHub config ─────────────────────────────────── -->
+  <!-- ── GitHub config (admin only) ──────────────────────── -->
+  {% if is_admin %}
   <div class="col-lg-5">
     <div class="card h-100">
       <div class="card-header py-3 d-flex align-items-center gap-2">
@@ -112,9 +113,10 @@
       </form>
     </div>
   </div>
+  {% endif %}
 
   <!-- ── Update action ──────────────────────────────────── -->
-  <div class="col-lg-7">
+  <div class="col-lg-{% if is_admin %}7{% else %}12{% endif %}">
     <div class="card h-100">
       <div class="card-header py-3 d-flex align-items-center gap-2">
         <i class="bi bi-cloud-download" style="font-size:1.1rem;color:#2563eb"></i>
@@ -186,6 +188,7 @@
   </div>
 </div>
 
+{% if is_admin %}
 <!-- ── SMTP / Email config ──────────────────────────────────── -->
 <div class="card mt-4">
   <div class="card-header py-3 d-flex align-items-center gap-2">
@@ -273,6 +276,7 @@
     </div>
   </form>
 </div>
+{% endif %}
 
 {% endblock %}
 

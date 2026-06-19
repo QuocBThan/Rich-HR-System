@@ -1628,10 +1628,7 @@ def reset_password(token):
 @app.route('/system')
 @login_required
 def system():
-    if session.get('role') != 'admin':
-        flash('Chỉ admin mới xem được trang này.', 'error')
-        return redirect(url_for('index'))
-    import sys, platform, sqlite3
+    import sys, platform
     cfg = _load_sys_config()
     db_path = os.path.join(_APP_DIR, 'attendance.db')
     db_size = round(os.path.getsize(db_path) / 1024, 1) if os.path.exists(db_path) else 0
@@ -1640,6 +1637,7 @@ def system():
                            py_version=sys.version.split()[0],
                            platform=platform.system() + ' ' + platform.release(),
                            db_size=db_size,
+                           is_admin=(session.get('role') == 'admin'),
                            current_user=session.get('display_name', ''))
 
 
@@ -1703,8 +1701,6 @@ def _find_git():
 @app.route('/system/update', methods=['POST'])
 @login_required
 def system_update():
-    if session.get('role') != 'admin':
-        return jsonify({'ok': False, 'error': 'Forbidden'}), 403
 
     import subprocess, threading, time, sys
 
