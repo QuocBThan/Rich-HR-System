@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Import Excel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-file-earmark-arrow-up me-2"></i>Import Dữ Liệu Từ Excel</h4>
+  <div class="page-sub">Nạp hàng loạt dữ liệu từ file <strong>.xlsx</strong> hoặc <strong>.csv</strong>. Dòng đầu tiên phải là tiêu đề cột (đúng tên như file mẫu).</div>
+</div>
+
+<div class="row g-4">
+  <!-- Upload -->
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header py-3">Tải File Lên</div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('import_data') }}" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">Import vào bảng</label>
+            <select name="target" class="form-select" required>
+              {% for key, t in targets.items() %}
+              <option value="{{ key }}">{{ t.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">File (.xlsx hoặc .csv)</label>
+            <input type="file" name="file" accept=".xlsx,.csv" class="form-control" required>
+            <div class="form-text">Tối đa 10 MB. Dòng 1 là tiêu đề; các dòng sau là dữ liệu.</div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-upload me-1"></i> Import
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-body p-3" style="font-size:.82rem;color:#475569;line-height:1.7">
+        <strong><i class="bi bi-info-circle me-1"></i>Lưu ý</strong>
+        <ul class="mb-0 mt-1" style="padding-left:18px">
+          <li><strong>Kho Máy</strong>: trùng <code>serial_no</code> sẽ được cập nhật (không tạo trùng).</li>
+          <li><strong>Nhân Viên</strong>: trùng <code>id</code> sẽ được cập nhật.</li>
+          <li><strong>Đơn Giao / Thu Hồi</strong>: mỗi dòng tạo một bản ghi mới (mã tự sinh).</li>
+          <li>Dòng thiếu cột bắt buộc sẽ bị <strong>bỏ qua</strong> và báo lại.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Templates / column guide -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header py-3">File Mẫu &amp; Cột Dữ Liệu</div>
+      <div class="card-body p-0">
+        {% for key, t in targets.items() %}
+        <div class="p-3" style="border-bottom:1px solid #f1f5f9">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong>{{ t.label }}</strong>
+            <a href="{{ url_for('import_template', target=key) }}" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-download me-1"></i> Tải template
+            </a>
+          </div>
+          <div style="font-size:.78rem;color:#64748b">
+            {% for c in t.cols %}<code style="margin:2px 3px;display:inline-block">{{ c }}</code>{% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

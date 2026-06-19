@@ -2229,6 +2229,231 @@ def delivery_return_delete(return_id):
 
 
 # ------------------------------------------------------------------ #
+# IMPORT FROM EXCEL / CSV  (inventory, deliveries, employees, returns)
+# ------------------------------------------------------------------ #
+
+_IMPORT_TARGETS = {
+    'inventory': {
+        'label': 'Kho Máy',
+        'roles': ('admin', 'hr', 'delivery'),
+        'cols':  ['serial_no', 'model', 'condition', 'status', 'notes'],
+        'sample': ['SN001', 'PAX A920', 'new', 'in_stock', 'Máy mẫu'],
+    },
+    'deliveries': {
+        'label': 'Đơn Giao Hàng',
+        'roles': ('admin', 'hr', 'delivery'),
+        'cols':  ['customer_name', 'customer_email', 'customer_phone', 'customer_address',
+                  'machine_serial', 'scheduled_date', 'assigned_to', 'notes'],
+        'sample': ['Nguyễn Văn A', 'a@gmail.com', '0901234567', '123 Lê Lợi, Q1',
+                   'SN001', '2026-06-20', 'NV giao', ''],
+    },
+    'returns': {
+        'label': 'Thu Hồi Máy',
+        'roles': ('admin', 'hr', 'delivery'),
+        'cols':  ['customer_name', 'customer_email', 'customer_phone', 'customer_address',
+                  'machine_serial', 'machine_model', 'machine_condition', 'reason'],
+        'sample': ['Nguyễn Văn A', 'a@gmail.com', '0901234567', '123 Lê Lợi, Q1',
+                   'SN001', 'PAX A920', 'used', 'Hết hợp đồng'],
+    },
+    'employees': {
+        'label': 'Nhân Viên',
+        'roles': ('admin', 'hr'),
+        'cols':  ['id', 'name', 'role', 'department', 'start_time', 'end_time',
+                  'break_hrs', 'max_hrs_day', 'work_days', 'employment_type'],
+        'sample': ['NV001', 'Nguyễn Văn A', 'Staff', 'Delivery', '09:00', '18:00',
+                   '1.0', '8.0', '0,1,2,3,4', 'full_time'],
+    },
+}
+
+
+def _parse_import_file(f):
+    """Read an uploaded .xlsx or .csv into a list of header-keyed dict rows."""
+    import io as _io
+    name = (f.filename or '').lower()
+    raw  = f.read()
+    rows = []
+    if name.endswith('.csv'):
+        import csv as _csv
+        text   = raw.decode('utf-8-sig', errors='replace')
+        reader = _csv.DictReader(_io.StringIO(text))
+        for r in reader:
+            rows.append({(k or '').strip().lower(): (v or '').strip()
+                         for k, v in r.items() if k})
+    elif name.endswith('.xlsx'):
+        from openpyxl import load_workbook
+        wb = load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+        headers = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                headers = [(str(c).strip().lower() if c is not None else '') for c in row]
+                continue
+            if row is None or all(c is None for c in row):
+                continue
+            d = {}
+            for j, c in enumerate(row):
+                if j < len(headers) and headers[j]:
+                    d[headers[j]] = (str(c).strip() if c is not None else '')
+            rows.append(d)
+        wb.close()
+    else:
+        raise RuntimeError('Chỉ hỗ trợ file .xlsx hoặc .csv')
+    return rows
+
+
+def _import_rows(target, rows):
+    """Insert parsed rows into the target table. Returns (inserted, skipped, errors)."""
+    inserted = skipped = 0
+    errors = []
+
+    def g(r, *keys):
+        for k in keys:
+            if r.get(k):
+                return r.get(k)
+        return ''
+
+    for idx, r in enumerate(rows, start=2):   # row 2 = first data row in the sheet
+        try:
+            if target == 'inventory':
+                serial = g(r, 'serial_no', 'serial', 'serial number')
+                if not serial:
+                    skipped += 1; continue
+                db.save_inventory({
+                    'serial_no': serial,
+                    'model':     g(r, 'model'),
+                    'condition': (g(r, 'condition') or 'new').lower(),
+                    'status':    (g(r, 'status') or 'in_stock').lower(),
+                    'notes':     g(r, 'notes'),
+                })
+            elif target == 'deliveries':
+                name = g(r, 'customer_name', 'name', 'khach', 'khách hàng')
+                if not name:
+                    skipped += 1; continue
+                db.create_delivery({
+                    'customer_name':    name,
+                    'customer_email':   g(r, 'customer_email', 'email'),
+                    'customer_phone':   g(r, 'customer_phone', 'phone', 'sdt'),
+                    'customer_address': g(r, 'customer_address', 'address', 'dia chi'),
+                    'machine_serial':   g(r, 'machine_serial', 'serial_no', 'serial'),
+                    'scheduled_date':   g(r, 'scheduled_date', 'date', 'ngay giao'),
+                    'assigned_to':      g(r, 'assigned_to'),
+                    'notes':            g(r, 'notes'),
+                })
+            elif target == 'returns':
+                name = g(r, 'customer_name', 'name')
+                if not name:
+                    skipped += 1; continue
+                db.create_return({
+                    'customer_name':     name,
+                    'customer_email':    g(r, 'customer_email', 'email'),
+                    'customer_phone':    g(r, 'customer_phone', 'phone'),
+                    'customer_address':  g(r, 'customer_address', 'address'),
+                    'machine_serial':    g(r, 'machine_serial', 'serial_no', 'serial'),
+                    'machine_model':     g(r, 'machine_model', 'model'),
+                    'machine_condition': g(r, 'machine_condition', 'condition'),
+                    'reason':            g(r, 'reason'),
+                    'handled_by':        session.get('display_name', ''),
+                })
+            elif target == 'employees':
+                emp_id = g(r, 'id', 'employee_id', 'ma nv')
+                name   = g(r, 'name', 'ten')
+                if not emp_id or not name:
+                    skipped += 1; continue
+                db.save_employee({
+                    'id':              emp_id.upper(),
+                    'name':            name,
+                    'role':            g(r, 'role'),
+                    'department':      g(r, 'department', 'bo phan'),
+                    'start_time':      g(r, 'start_time') or '09:00',
+                    'end_time':        g(r, 'end_time') or '18:00',
+                    'break_hrs':       g(r, 'break_hrs') or '1.0',
+                    'max_hrs_day':     g(r, 'max_hrs_day') or '8.0',
+                    'work_days':       g(r, 'work_days') or '0,1,2,3,4',
+                    'employment_type': g(r, 'employment_type') or 'full_time',
+                })
+            else:
+                raise RuntimeError('Mục import không hợp lệ')
+            inserted += 1
+        except Exception as e:
+            errors.append(f'Dòng {idx}: {e}')
+    return inserted, skipped, errors
+
+
+def _import_allowed(role):
+    if role == 'employee':
+        return None
+    if role not in ('admin', 'hr', 'delivery'):
+        return None
+    return {k: v for k, v in _IMPORT_TARGETS.items() if role in v['roles']}
+
+
+@app.route('/import')
+@login_required
+def import_data():
+    targets = _import_allowed(session.get('role'))
+    if targets is None:
+        return redirect(url_for('portal') if session.get('role') == 'employee'
+                        else url_for('no_access'))
+    return render_template('import.html', targets=targets)
+
+
+@app.route('/import', methods=['POST'])
+@login_required
+def import_data_post():
+    role    = session.get('role')
+    targets = _import_allowed(role)
+    if targets is None:
+        return redirect(url_for('no_access'))
+    target = request.form.get('target', '')
+    if target not in targets:
+        flash('Mục import không hợp lệ hoặc bạn không đủ quyền.', 'error')
+        return redirect(url_for('import_data'))
+
+    f = request.files.get('file')
+    if not f or not f.filename:
+        flash('Chưa chọn file.', 'error')
+        return redirect(url_for('import_data'))
+
+    try:
+        rows = _parse_import_file(f)
+    except Exception as e:
+        flash(f'Không đọc được file: {e}', 'error')
+        return redirect(url_for('import_data'))
+    if not rows:
+        flash('File không có dữ liệu (cần 1 dòng tiêu đề + ít nhất 1 dòng dữ liệu).', 'error')
+        return redirect(url_for('import_data'))
+
+    inserted, skipped, errors = _import_rows(target, rows)
+    db.log_audit(session['user_id'], session['username'], 'IMPORT',
+                 f'{target}: +{inserted} / bỏ {skipped} / lỗi {len(errors)}', request.remote_addr)
+
+    label = _IMPORT_TARGETS[target]['label']
+    summary = f'✅ Import {label}: đã thêm/cập nhật {inserted}, bỏ qua {skipped}'
+    if errors:
+        summary += f', {len(errors)} lỗi — ' + ' | '.join(errors[:5])
+        if len(errors) > 5:
+            summary += f' …(+{len(errors) - 5})'
+    flash(summary, 'success' if inserted else 'error')
+    return redirect(url_for('import_data'))
+
+
+@app.route('/import/template/<target>')
+@login_required
+def import_template(target):
+    targets = _import_allowed(session.get('role'))
+    if targets is None or target not in targets:
+        return redirect(url_for('no_access'))
+    meta = _IMPORT_TARGETS[target]
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(meta['cols'])
+    w.writerow(meta['sample'])
+    content = '﻿' + output.getvalue()
+    return Response(content, mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition': f'attachment; filename=template_{target}.csv'})
+
+
+# ------------------------------------------------------------------ #
 # LARK API SYNC
 # ------------------------------------------------------------------ #
 

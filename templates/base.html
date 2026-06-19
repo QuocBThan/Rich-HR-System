@@ -569,6 +569,9 @@
     <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
       <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
     </a>
+    <a href="{{ url_for('import_data') }}" class="{{ 'active' if request.path == '/import' }}">
+      <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
+    </a>
     {% elif in_delivery %}
     <div class="sb-section">Giao Hàng</div>
     <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
@@ -579,6 +582,9 @@
     </a>
     <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
       <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
+    </a>
+    <a href="{{ url_for('import_data') }}" class="{{ 'active' if request.path == '/import' }}">
+      <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
     </a>
     {% else %}
     <div class="sb-section">Chính</div>
@@ -613,6 +619,9 @@
     <div class="sb-section">Cài Đặt</div>
     <a href="{{ url_for('employees') }}" class="{{ 'active' if request.path == '/employees' }}">
       <i class="bi bi-people"></i> Nhân Viên &amp; Alias
+    </a>
+    <a href="{{ url_for('import_data') }}" class="{{ 'active' if request.path == '/import' }}">
+      <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
     </a>
     {% if current_role == 'admin' %}
     <a href="{{ url_for('manage_users') }}" class="{{ 'active' if request.path == '/users' }}">
