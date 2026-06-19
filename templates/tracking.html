@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+{% block title %}Tracking UPS/USPS{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-end">
+  <div>
+    <h4><i class="bi bi-geo me-2"></i>Tracking Vận Chuyển (UPS / USPS)</h4>
+    <div class="page-sub">Tự động cập nhật trạng thái kiện hàng qua API UPS &amp; USPS cho đơn giao &amp; thu hồi.</div>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="POST" action="{{ url_for('tracking_scan') }}">
+      <button class="btn btn-outline-secondary btn-sm" title="Tìm mã 1Z.../USPS trong ghi chú và gán vào ô tracking">
+        <i class="bi bi-search me-1"></i> Quét mã từ ghi chú
+      </button>
+    </form>
+    <button id="syncAllBtn" class="btn btn-primary btn-sm">
+      <i class="bi bi-arrow-repeat me-1"></i> Cập nhật tất cả
+    </button>
+  </div>
+</div>
+
+{% if is_admin %}
+<!-- Config -->
+<div class="card mb-4">
+  <div class="card-header py-3">Cấu Hình API (chỉ admin/hr)</div>
+  <div class="card-body p-4">
+    <form method="POST" action="{{ url_for('tracking_config_save') }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="fw-bold mb-2" style="color:#92400e"><i class="bi bi-box-seam me-1"></i>UPS</div>
+          <label class="form-label">Client ID</label>
+          <input type="text" name="ups_client_id" value="{{ cfg.ups_client_id or '' }}" class="form-control mb-2">
+          <label class="form-label">Client Secret</label>
+          <input type="password" name="ups_client_secret" placeholder="{{ '•••• đã lưu (để trống nếu không đổi)' if cfg.ups_client_secret else 'nhập secret' }}" class="form-control mb-2">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="ups_test" value="1" id="upsTest" {{ 'checked' if cfg.ups_test }}>
+            <label class="form-check-label" for="upsTest">Dùng môi trường Test (wwwcie)</label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="fw-bold mb-2" style="color:#1d4ed8"><i class="bi bi-mailbox me-1"></i>USPS</div>
+          <label class="form-label">Client ID</label>
+          <input type="text" name="usps_client_id" value="{{ cfg.usps_client_id or '' }}" class="form-control mb-2">
+          <label class="form-label">Client Secret</label>
+          <input type="password" name="usps_client_secret" placeholder="{{ '•••• đã lưu (để trống nếu không đổi)' if cfg.usps_client_secret else 'nhập secret' }}" class="form-control mb-2">
+        </div>
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="tracking_auto_sync" value="1" id="autoSync" {{ 'checked' if cfg.tracking_auto_sync }}>
+            <label class="form-check-label" for="autoSync"><strong>Tự động cập nhật định kỳ (background)</strong></label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Chu kỳ tự động (phút)</label>
+          <input type="number" name="tracking_interval" value="{{ cfg.tracking_interval or 60 }}" min="15" class="form-control" style="max-width:140px">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i> Lưu cấu hình</button>
+          <span class="form-text ms-2">Lấy credentials tại developer.ups.com &amp; developer.usps.com (OAuth client_credentials).</span>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- Sync log output -->
+<div id="syncOut" class="alert alert-success" style="display:none;white-space:pre-wrap;font-size:.8rem;max-height:240px;overflow:auto"></div>
+
+<!-- Deliveries -->
+<div class="card mb-4">
+  <div class="card-header py-3">Đơn Giao Đang Theo Dõi ({{ deliveries|length }})</div>
+  {% if deliveries %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.82rem">
+      <thead><tr><th>Mã / Khách</th><th>Hãng</th><th>Mã Tracking</th><th>Trạng thái carrier</th><th>Cập nhật</th></tr></thead>
+      <tbody>
+        {% for d in deliveries %}
+        <tr>
+          <td><code>{{ d.delivery_code }}</code><br><strong>{{ d.customer_name }}</strong></td>
+          <td>{% if d.carrier %}<span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600">{{ d.carrier|upper }}</span>{% else %}—{% endif %}</td>
+          <td>
+            <form method="POST" action="{{ url_for('tracking_set', kind='delivery', item_id=d.id) }}" class="d-flex gap-1">
+              <input type="text" name="tracking_number" value="{{ d.tracking_number or '' }}" class="form-control form-control-sm" style="min-width:170px" placeholder="1Z... / USPS">
+              <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-check"></i></button>
+            </form>
+          </td>
+          <td>{{ d.tracking_status or '—' }}</td>
+          <td style="color:#94a3b8;white-space:nowrap">{{ d.tracking_updated_at or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center" style="color:#94a3b8">Không có đơn giao nào có mã tracking. Bấm “Quét mã từ ghi chú” nếu đã import dữ liệu có tracking.</div>
+  {% endif %}
+</div>
+
+<!-- Returns -->
+<div class="card">
+  <div class="card-header py-3">Thu Hồi Đang Theo Dõi ({{ returns|length }})</div>
+  {% if returns %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.82rem">
+      <thead><tr><th>Mã / Khách</th><th>Hãng</th><th>Mã Tracking</th><th>Trạng thái carrier</th><th>Cập nhật</th></tr></thead>
+      <tbody>
+        {% for r in returns %}
+        <tr>
+          <td><code>{{ r.return_code }}</code><br><strong>{{ r.customer_name }}</strong></td>
+          <td>{% if r.carrier %}<span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600">{{ r.carrier|upper }}</span>{% else %}—{% endif %}</td>
+          <td>
+            <form method="POST" action="{{ url_for('tracking_set', kind='return', item_id=r.id) }}" class="d-flex gap-1">
+              <input type="text" name="tracking_number" value="{{ r.tracking_number or '' }}" class="form-control form-control-sm" style="min-width:170px" placeholder="1Z... / USPS">
+              <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-check"></i></button>
+            </form>
+          </td>
+          <td>{{ r.tracking_status or '—' }}</td>
+          <td style="color:#94a3b8;white-space:nowrap">{{ r.tracking_updated_at or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center" style="color:#94a3b8">Không có yêu cầu thu hồi nào có mã tracking.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('syncAllBtn').addEventListener('click', function () {
+  const b = this, out = document.getElementById('syncOut');
+  b.disabled = true;
+  b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Đang cập nhật...';
+  const body = new URLSearchParams({ ajax: '1' });
+  fetch('{{ url_for("tracking_sync_manual") }}', { method: 'POST', body: body })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      out.style.display = 'block';
+      out.className = 'alert ' + (res.ok ? 'alert-success' : 'alert-danger');
+      if (!res.ok) {
+        out.textContent = '⚠️ ' + (res.error || 'Lỗi');
+      } else {
+        out.textContent = 'Đã kiểm tra ' + res.checked + ' kiện, cập nhật ' + res.updated
+          + (res.errors ? (', ' + res.errors + ' lỗi') : '') + '\n\n' + (res.logs || []).join('\n');
+        setTimeout(function () { window.location.reload(); }, 1800);
+      }
+      b.disabled = false;
+      b.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Cập nhật tất cả';
+    })
+    .catch(function (e) {
+      out.style.display = 'block'; out.className = 'alert alert-danger';
+      out.textContent = 'Lỗi: ' + e;
+      b.disabled = false;
+      b.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Cập nhật tất cả';
+    });
+});
+</script>
+{% endblock %}

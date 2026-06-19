@@ -21,6 +21,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import processor
+import tracking
 
 app = Flask(__name__)
 
@@ -2451,6 +2452,151 @@ def import_template(target):
     content = '﻿' + output.getvalue()
     return Response(content, mimetype='text/csv; charset=utf-8',
                     headers={'Content-Disposition': f'attachment; filename=template_{target}.csv'})
+
+
+# ------------------------------------------------------------------ #
+# CARRIER TRACKING — UPS & USPS auto status updates
+# ------------------------------------------------------------------ #
+
+def _tracking_sync_run(triggered_by='manual'):
+    """Query UPS/USPS for every trackable delivery & return; apply results.
+    Returns {ok, updated, checked, errors, logs}."""
+    cfg = _load_sys_config()
+    if not (cfg.get('ups_client_id') or cfg.get('usps_client_id')):
+        return {'ok': False, 'error': 'Chưa cấu hình API UPS/USPS.', 'logs': []}
+
+    tk   = tracking.Tracker(cfg)
+    logs = []
+    checked = updated = 0
+    errors  = 0
+
+    for d in db.get_trackable_deliveries():
+        num     = (d.get('tracking_number') or '').strip()
+        carrier = (d.get('carrier') or '').strip() or tracking.detect_carrier(num)
+        if not num:
+            continue
+        checked += 1
+        try:
+            res = tk.track(num, carrier or None)
+            db.apply_delivery_tracking(d['id'], res.get('status', ''), res.get('delivered', False))
+            updated += 1
+            logs.append(f"GIAO {d['delivery_code']} [{num}] → {res.get('status','?')}"
+                        + (' ✅ delivered' if res.get('delivered') else ''))
+        except Exception as e:
+            errors += 1
+            logs.append(f"GIAO {d['delivery_code']} [{num}] ⚠️ {e}")
+
+    for r in db.get_trackable_returns():
+        num     = (r.get('tracking_number') or '').strip()
+        carrier = (r.get('carrier') or '').strip() or tracking.detect_carrier(num)
+        if not num:
+            continue
+        checked += 1
+        try:
+            res = tk.track(num, carrier or None)
+            db.apply_return_tracking(r['id'], res.get('status', ''), res.get('delivered', False))
+            updated += 1
+            logs.append(f"THU HỒI {r['return_code']} [{num}] → {res.get('status','?')}"
+                        + (' ✅ received' if res.get('delivered') else ''))
+        except Exception as e:
+            errors += 1
+            logs.append(f"THU HỒI {r['return_code']} [{num}] ⚠️ {e}")
+
+    db.add_lark_sync_log(f'tracking:{triggered_by}', '', '', updated,
+                         '\n'.join(logs), 'ok' if not errors else 'error')
+    return {'ok': True, 'checked': checked, 'updated': updated, 'errors': errors, 'logs': logs}
+
+
+@app.route('/tracking')
+@delivery_required
+def tracking_page():
+    cfg        = _load_sys_config()
+    deliveries = db.get_trackable_deliveries()
+    returns    = db.get_trackable_returns()
+    is_admin   = session.get('role') in ('admin', 'hr')
+    return render_template('tracking.html',
+                           cfg=cfg, deliveries=deliveries, returns=returns,
+                           is_admin=is_admin)
+
+
+@app.route('/tracking/config', methods=['POST'])
+@delivery_required
+def tracking_config_save():
+    if session.get('role') not in ('admin', 'hr'):
+        return redirect(url_for('no_access'))
+    cfg = _load_sys_config()
+    cfg['ups_client_id']      = request.form.get('ups_client_id', '').strip()
+    cfg['ups_test']           = request.form.get('ups_test') == '1'
+    cfg['usps_client_id']     = request.form.get('usps_client_id', '').strip()
+    cfg['tracking_auto_sync'] = request.form.get('tracking_auto_sync') == '1'
+    cfg['tracking_interval']  = int(request.form.get('tracking_interval', 60) or 60)
+    # Only overwrite secrets when a new value is supplied
+    ups_sec  = request.form.get('ups_client_secret', '').strip()
+    usps_sec = request.form.get('usps_client_secret', '').strip()
+    if ups_sec:
+        cfg['ups_client_secret'] = ups_sec
+    if usps_sec:
+        cfg['usps_client_secret'] = usps_sec
+    _save_sys_config(cfg)
+    flash('✅ Đã lưu cấu hình tracking UPS/USPS.', 'success')
+    return redirect(url_for('tracking_page'))
+
+
+@app.route('/tracking/scan', methods=['POST'])
+@delivery_required
+def tracking_scan():
+    """Backfill tracking numbers from existing notes/reason text."""
+    n = db.backfill_tracking_from_notes(tracking.extract_tracking)
+    flash(f'✅ Đã quét và gán mã tracking cho {n} bản ghi từ ghi chú.', 'success')
+    return redirect(url_for('tracking_page'))
+
+
+@app.route('/tracking/set/<kind>/<int:item_id>', methods=['POST'])
+@delivery_required
+def tracking_set(kind, item_id):
+    num     = request.form.get('tracking_number', '').strip()
+    carrier = request.form.get('carrier', '').strip() or tracking.detect_carrier(num)
+    if kind == 'delivery':
+        db.set_delivery_tracking(item_id, num, carrier)
+    elif kind == 'return':
+        db.set_return_tracking(item_id, num, carrier)
+    else:
+        flash('Loại không hợp lệ.', 'error')
+        return redirect(url_for('tracking_page'))
+    flash('✅ Đã lưu mã tracking.', 'success')
+    return redirect(url_for('tracking_page'))
+
+
+@app.route('/tracking/sync', methods=['POST'])
+@delivery_required
+def tracking_sync_manual():
+    result = _tracking_sync_run(triggered_by=session.get('username', 'manual'))
+    if request.form.get('ajax'):
+        return jsonify(result)
+    if not result.get('ok'):
+        flash(f'⚠️ {result.get("error", "Lỗi cập nhật tracking")}', 'error')
+    else:
+        flash(f'✅ Đã kiểm tra {result["checked"]} kiện, cập nhật {result["updated"]}'
+              + (f', {result["errors"]} lỗi' if result['errors'] else ''), 'success')
+    return redirect(url_for('tracking_page'))
+
+
+def _tracking_auto_loop():
+    import time
+    while True:
+        try:
+            cfg = _load_sys_config()
+            if cfg.get('tracking_auto_sync') and (cfg.get('ups_client_id') or cfg.get('usps_client_id')):
+                _tracking_sync_run(triggered_by='auto')
+                interval = int(cfg.get('tracking_interval', 60)) * 60
+            else:
+                interval = 300
+        except Exception:
+            interval = 300
+        time.sleep(interval)
+
+_tracking_bg = _threading.Thread(target=_tracking_auto_loop, daemon=True)
+_tracking_bg.start()
 
 
 # ------------------------------------------------------------------ #

@@ -213,6 +213,13 @@ def init_db():
             )
         ''')
 
+        # Carrier tracking columns on deliveries & returns
+        for _tbl in ('deliveries', 'returns'):
+            _cols = [r[1] for r in conn.execute(f"PRAGMA table_info({_tbl})").fetchall()]
+            for _c in ('tracking_number', 'carrier', 'tracking_status', 'tracking_updated_at'):
+                if _c not in _cols:
+                    conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN {_c} TEXT DEFAULT ''")
+
 
 @contextmanager
 def get_db():
@@ -1317,3 +1324,124 @@ def get_returns_stats():
         'received':    by_status.get('received', 0),
         'pending_label': pending_label,
     }
+
+
+# ------------------------------------------------------------------ #
+# CARRIER TRACKING (UPS / USPS) — shared by deliveries & returns
+# ------------------------------------------------------------------ #
+
+def set_delivery_tracking(delivery_id, tracking_number, carrier):
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE deliveries SET tracking_number = ?, carrier = ? WHERE id = ?',
+            (tracking_number, carrier, delivery_id))
+
+
+def set_return_tracking(return_id, tracking_number, carrier):
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE returns SET tracking_number = ?, carrier = ? WHERE id = ?',
+            (tracking_number, carrier, return_id))
+
+
+def get_trackable_deliveries():
+    """Deliveries that have a tracking number and are not yet delivered/returned."""
+    with get_db() as conn:
+        rows = conn.execute('''
+            SELECT * FROM deliveries
+            WHERE tracking_number != '' AND tracking_number IS NOT NULL
+              AND status NOT IN ('delivered', 'returned')
+            ORDER BY created_at DESC
+        ''').fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_trackable_returns():
+    """Returns that have a tracking number and have not been received yet."""
+    with get_db() as conn:
+        rows = conn.execute('''
+            SELECT * FROM returns
+            WHERE tracking_number != '' AND tracking_number IS NOT NULL
+              AND status != 'received'
+            ORDER BY created_at DESC
+        ''').fetchall()
+        return [dict(r) for r in rows]
+
+
+def apply_delivery_tracking(delivery_id, status_text, delivered):
+    """Store carrier status; flip delivery to 'delivered' when the carrier confirms it."""
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_db() as conn:
+        if delivered:
+            conn.execute('''
+                UPDATE deliveries
+                SET tracking_status = ?, tracking_updated_at = ?, status = 'delivered'
+                WHERE id = ?
+            ''', (status_text, ts, delivery_id))
+            row = conn.execute('SELECT machine_serial FROM deliveries WHERE id = ?',
+                               (delivery_id,)).fetchone()
+            if row and row['machine_serial']:
+                conn.execute(
+                    "UPDATE delivery_inventory SET status = 'delivered' WHERE serial_no = ?",
+                    (row['machine_serial'],))
+        else:
+            conn.execute(
+                'UPDATE deliveries SET tracking_status = ?, tracking_updated_at = ? WHERE id = ?',
+                (status_text, ts, delivery_id))
+
+
+def apply_return_tracking(return_id, status_text, delivered):
+    """Store carrier status; mark return 'received' (or 'in_transit') from carrier signal."""
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_db() as conn:
+        rec = conn.execute('SELECT * FROM returns WHERE id = ?', (return_id,)).fetchone()
+        if not rec:
+            return
+        if delivered:
+            conn.execute('''
+                UPDATE returns
+                SET tracking_status = ?, tracking_updated_at = ?, status = 'received', received_at = ?
+                WHERE id = ?
+            ''', (status_text, ts, ts, return_id))
+            if rec['machine_serial']:
+                conn.execute(
+                    "UPDATE delivery_inventory SET status = 'returned' WHERE serial_no = ?",
+                    (rec['machine_serial'],))
+            if rec['delivery_id']:
+                conn.execute(
+                    "UPDATE deliveries SET status = 'returned', returned_at = ? WHERE id = ?",
+                    (ts, rec['delivery_id']))
+        else:
+            new_status = 'in_transit' if rec['status'] == 'requested' else rec['status']
+            conn.execute('''
+                UPDATE returns SET tracking_status = ?, tracking_updated_at = ?, status = ?
+                WHERE id = ?
+            ''', (status_text, ts, new_status, return_id))
+
+
+def backfill_tracking_from_notes(extractor):
+    """Fill tracking_number/carrier from notes/reason text. `extractor(text)->(num,carrier)`.
+    Returns count updated across deliveries and returns."""
+    updated = 0
+    with get_db() as conn:
+        d_rows = conn.execute(
+            "SELECT id, notes FROM deliveries WHERE (tracking_number = '' OR tracking_number IS NULL)"
+        ).fetchall()
+        for r in d_rows:
+            num, carrier = extractor(r['notes'] or '')
+            if num:
+                conn.execute('UPDATE deliveries SET tracking_number = ?, carrier = ? WHERE id = ?',
+                             (num, carrier, r['id']))
+                updated += 1
+        r_rows = conn.execute(
+            "SELECT id, reason, notes FROM returns WHERE (tracking_number = '' OR tracking_number IS NULL)"
+        ).fetchall()
+        for r in r_rows:
+            num, carrier = extractor((r['reason'] or '') + ' ' + (r['notes'] or ''))
+            if num:
+                conn.execute('UPDATE returns SET tracking_number = ?, carrier = ? WHERE id = ?',
+                             (num, carrier, r['id']))
+                updated += 1
+    return updated

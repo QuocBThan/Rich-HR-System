@@ -569,6 +569,9 @@
     <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
       <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
     </a>
+    <a href="{{ url_for('tracking_page') }}" class="{{ 'active' if request.path == '/tracking' }}">
+      <i class="bi bi-geo"></i> Tracking UPS/USPS
+    </a>
     <a href="{{ url_for('import_data') }}" class="{{ 'active' if request.path == '/import' }}">
       <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
     </a>
@@ -582,6 +585,9 @@
     </a>
     <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
       <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
+    </a>
+    <a href="{{ url_for('tracking_page') }}" class="{{ 'active' if request.path == '/tracking' }}">
+      <i class="bi bi-geo"></i> Tracking UPS/USPS
     </a>
     <a href="{{ url_for('import_data') }}" class="{{ 'active' if request.path == '/import' }}">
       <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
