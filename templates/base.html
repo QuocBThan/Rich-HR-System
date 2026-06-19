@@ -87,6 +87,7 @@
       display: flex;
       flex-direction: column;
       z-index: var(--z-sticky);
+      overflow: visible;
     }
 
     /* Brand */
@@ -489,34 +490,39 @@
       </div>
     </div>
 
-    <!-- Department switcher -->
-    {% set in_delivery = request.path.startswith('/delivery') %}
-    <div class="dept-switcher dropdown w-100">
-      <button class="dept-btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-{% if in_delivery %}truck{% else %}person-badge{% endif %}"></i>
-        <span>{% if in_delivery %}Delivery Department{% else %}HR Department{% endif %}</span>
-      </button>
-      <ul class="dropdown-menu dept-menu w-100">
-        <li>
-          <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}" href="{{ url_for('portal') if current_role in ('delivery', 'employee') else url_for('index') }}">
-            <i class="bi bi-person-badge"></i>
-            <div>
-              <div class="dept-item-name">HR Department</div>
-              <div class="dept-item-sub">Attendance &amp; Leave</div>
-            </div>
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item dept-item {% if in_delivery %}active{% endif %}" href="{{ url_for('delivery') }}">
-            <i class="bi bi-truck"></i>
-            <div>
-              <div class="dept-item-name">Delivery Department</div>
-              <div class="dept-item-sub">Giao Hàng &amp; Kho Máy</div>
-            </div>
-          </a>
-        </li>
-      </ul>
-    </div>
+  </div>
+
+  <!-- Department switcher — outside sb-brand to avoid flex clipping -->
+  {% set in_delivery = request.path.startswith('/delivery') %}
+  <div class="dept-switcher dropdown w-100" style="padding:0 12px 8px;">
+    <button class="dept-btn dropdown-toggle w-100" type="button"
+            data-bs-toggle="dropdown" data-bs-auto-close="true"
+            data-bs-offset="0,4" aria-expanded="false">
+      <i class="bi bi-{% if in_delivery %}truck{% else %}person-badge{% endif %}"></i>
+      <span>{% if in_delivery %}Delivery Department{% else %}HR Department{% endif %}</span>
+    </button>
+    <ul class="dropdown-menu dept-menu w-100">
+      <li>
+        <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}"
+           href="{{ url_for('portal') if current_role in ('delivery', 'employee') else url_for('index') }}">
+          <i class="bi bi-person-badge"></i>
+          <div>
+            <div class="dept-item-name">HR Department</div>
+            <div class="dept-item-sub">Attendance &amp; Leave</div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item dept-item {% if in_delivery %}active{% endif %}"
+           href="{{ url_for('delivery') }}">
+          <i class="bi bi-truck"></i>
+          <div>
+            <div class="dept-item-name">Delivery Department</div>
+            <div class="dept-item-sub">Giao Hàng &amp; Kho Máy</div>
+          </div>
+        </a>
+      </li>
+    </ul>
   </div>
 
   <!-- Nav -->

@@ -1739,10 +1739,23 @@ def system_update():
 
         steps.append(f'{len(commits)} commit mới: ' + ' · '.join(c[:60] for c in commits[:3]))
 
+        # Stash local changes so pull is never blocked by uncommitted edits
+        subprocess.run(
+            [git, 'stash', '--include-untracked'],
+            capture_output=True, text=True, cwd=_APP_DIR
+        )
+
         pull = subprocess.run(
             [git, '-c', 'core.autocrlf=false', 'pull', 'origin', branch, '--ff-only'],
             capture_output=True, text=True, cwd=_APP_DIR, timeout=60
         )
+
+        # Drop stash — remote version takes priority on a deployment server
+        subprocess.run(
+            [git, 'stash', 'drop'],
+            capture_output=True, text=True, cwd=_APP_DIR
+        )
+
         if pull.returncode != 0:
             return jsonify({'ok': False, 'error': pull.stderr.strip() or 'git pull thất bại', 'steps': steps})
 
