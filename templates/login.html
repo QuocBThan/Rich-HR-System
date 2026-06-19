@@ -3,392 +3,581 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Đăng Nhập — RichHR</title>
+  <title>Đăng Nhập — Rich System</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --blue:    #2684FF;
-      --blue-d:  #0D47D9;
-      --indigo:  #2684FF;
-      --ink:     #0A1A45;
-      --ink-mid: #0F2156;
-      --muted:   #64748b;
-      --border:  #e2e8f0;
-      --surface: #f8fafc;
+      --blue:   #2563eb;
+      --blue-d: #1d4ed8;
+      --blue-l: #3b82f6;
+      --indigo: #4338ca;
+      --text:   #0f172a;
+      --text-2: #475569;
+      --muted:  #94a3b8;
+      --border: #e2e8f0;
     }
 
     html, body {
       height: 100%;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--ink);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; overflow: hidden;
+      background: #071030;
     }
 
-    /* ── Background ──────────────────────────── */
-    .bg-canvas {
+    /* ── Background ─────────────────────────── */
+    .bg-base {
       position: fixed; inset: 0; z-index: 0;
-      background: radial-gradient(ellipse 80% 60% at 20% 10%, rgba(38,132,255,.15) 0%, transparent 60%),
-                  radial-gradient(ellipse 60% 50% at 80% 90%, rgba(13,71,217,.12) 0%, transparent 60%),
-                  var(--ink);
+      background: linear-gradient(160deg, #0a1540 0%, #0c1a4a 35%, #07102e 70%, #050c22 100%);
     }
     .bg-grid {
-      position: fixed; inset: 0; z-index: 0; opacity: .04;
+      position: fixed; inset: 0; z-index: 0;
       background-image:
-        linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px);
-      background-size: 48px 48px;
+        linear-gradient(rgba(59,130,246,.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,130,246,.055) 1px, transparent 1px);
+      background-size: 52px 52px;
+    }
+    .bg-glow {
+      position: fixed; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 65% 55% at 12% -5%,  rgba(67,56,202,.32) 0%, transparent 56%),
+        radial-gradient(ellipse 55% 45% at 88% 105%, rgba(37,99,235,.28) 0%, transparent 54%);
     }
 
-    /* ── Card ────────────────────────────────── */
+    /* Horizontal speed streaks in bg */
+    .bg-streaks { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+    .streak {
+      position: absolute; left: 0; right: 0;
+      background: linear-gradient(90deg,
+        transparent 0%, rgba(147,197,253,.0) 8%,
+        rgba(147,197,253,.5) 35%, rgba(219,234,254,.8) 50%,
+        rgba(147,197,253,.5) 65%, rgba(147,197,253,.0) 92%, transparent 100%);
+    }
+    .s1 { top: 17%;  height: 1.5px; opacity: .48; }
+    .s2 { top: 27%;  height: 1px;   opacity: .32; left: 8%; right: 5%; }
+    .s3 { top: 42%;  height: 2px;   opacity: .52; }
+    .s4 { top: 56%;  height: 1px;   opacity: .28; left: 5%; right: 14%; }
+    .s5 { top: 68%;  height: 1.5px; opacity: .44; }
+    .s6 { top: 80%;  height: 1px;   opacity: .26; left: 18%; right: 6%; }
+
+    /* ── Card wrapper (holds card + data flow) ── */
     .card-wrap {
       position: relative; z-index: 10;
-      width: 100%; max-width: 420px;
       margin: 24px;
-      border-radius: 20px;
-      overflow: hidden;
+      width: 100%; max-width: 460px;
+    }
+
+    /* ── Data flow SVG (orbiting particles) ──── */
+    .flow-svg {
+      position: absolute;
+      top: -16px; left: -16px;
+      pointer-events: none; overflow: visible; z-index: 20;
+      opacity: 0; /* shown by JS after path is set */
+      transition: opacity .5s ease;
+    }
+
+    /* Corner data nodes */
+    .c-node {
+      position: absolute; width: 8px; height: 8px;
+      border: 1.5px solid rgba(59,130,246,.65);
+      background: rgba(59,130,246,.15);
+      z-index: 21;
+      animation: node-pulse 2.4s ease-in-out infinite;
+    }
+    .c-node.tl { top: -4px; left: -4px; border-radius: 3px 0 0 0; }
+    .c-node.tr { top: -4px; right: -4px; border-radius: 0 3px 0 0; animation-delay: .6s; }
+    .c-node.bl { bottom: -4px; left: -4px; border-radius: 0 0 0 3px; animation-delay: 1.2s; }
+    .c-node.br { bottom: -4px; right: -4px; border-radius: 0 0 3px 0; animation-delay: 1.8s; }
+    @keyframes node-pulse {
+      0%,100% { opacity:.6; box-shadow: none; }
+      50%      { opacity:1;  box-shadow: 0 0 8px rgba(59,130,246,.7); transform: scale(1.25); }
+    }
+
+    /* ── Card ───────────────────────────────── */
+    .card {
+      position: relative; z-index: 10;
+      width: 100%;
+      border-radius: 20px; background: #ffffff; overflow: hidden;
       box-shadow:
-        0 0 0 1px rgba(255,255,255,.06),
-        0 32px 80px rgba(0,0,0,.55),
-        0 8px 24px rgba(0,0,0,.35);
-      animation: cardIn .45s cubic-bezier(0.16, 1, 0.3, 1) both;
+        0 0 0 1px rgba(255,255,255,.10),
+        0 8px 32px rgba(0,0,0,.22),
+        0 40px 90px rgba(0,0,0,.42);
+      animation: cardIn .5s cubic-bezier(.22,.68,0,1.12) both;
     }
     @keyframes cardIn {
-      from { opacity:0; transform: translateY(28px) scale(.97); }
-      to   { opacity:1; transform: translateY(0)    scale(1);   }
+      from { opacity:0; transform:translateY(22px) scale(.97); }
+      to   { opacity:1; transform:translateY(0)    scale(1); }
     }
 
-    /* ── Brand header ────────────────────────── */
-    .brand-header {
-      background: var(--ink-mid);
-      padding: 36px 40px 32px;
-      position: relative;
-      border-bottom: 1px solid rgba(255,255,255,.07);
+    /* ── Brand ──────────────────────────────── */
+    .brand {
+      padding: 38px 44px 26px;
+      display: flex; flex-direction: column; align-items: center;
+      border-bottom: 1px solid var(--border);
     }
-    .brand-header::after {
-      content: '';
-      position: absolute; inset: 0;
-      background: radial-gradient(ellipse 100% 120% at 50% -20%, rgba(38,132,255,.2), transparent 65%);
-      pointer-events: none;
+    .brand-lockup {
+      display: flex; align-items: center; gap: 18px;
+      margin-bottom: 18px;
     }
 
-    .logo-mark {
-      width: 56px; height: 56px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #2684FF 0%, #0D47D9 100%);
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 20px;
-      box-shadow: 0 8px 24px rgba(38,132,255,.45), 0 0 0 1px rgba(255,255,255,.12);
-      position: relative; z-index: 1;
+    /* Logo icon: transparent, floats on card */
+    .logo-icon {
+      width: 82px; height: 82px; flex-shrink: 0;
+      filter:
+        drop-shadow(0 0 18px rgba(25,55,230,.60))
+        drop-shadow(0 0  8px rgba(50,120,245,.45))
+        drop-shadow(0 4px 10px rgba(10,30,180,.30));
     }
-    .logo-mark svg { width: 28px; height: 28px; }
+    .logo-icon svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
-    .brand-name {
-      font-size: 1.55rem;
-      font-weight: 800;
-      letter-spacing: -.4px;
-      color: #f1f5f9;
-      line-height: 1;
-      position: relative; z-index: 1;
-    }
-    .brand-name span { color: #7ab8ff; }
-
-    .brand-sub {
-      font-size: .78rem;
-      color: #475569;
-      margin-top: 6px;
-      letter-spacing: .3px;
-      position: relative; z-index: 1;
-    }
-
-    /* ── Form panel ──────────────────────────── */
-    .form-panel {
-      background: #fff;
-      padding: 36px 40px 32px;
-    }
-
-    .field-group { margin-bottom: 18px; }
-
-    .field-label {
-      display: block;
-      font-size: .75rem;
+    /* Wordmark */
+    .wordmark { text-align: left; line-height: 1; }
+    .wm-rich {
+      font-size: 1.05rem;
       font-weight: 700;
-      color: #374151;
-      letter-spacing: .3px;
+      letter-spacing: .22em;
+      color: #334155;
       text-transform: uppercase;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
+    }
+    .wm-rule {
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue) 0%, rgba(37,99,235,.12) 100%);
+      margin-bottom: 5px; border-radius: 1px;
+    }
+    .wm-system {
+      font-size: 1.9rem;
+      font-weight: 900;
+      letter-spacing: .02em;
+      color: var(--text);
+      text-transform: uppercase;
+      line-height: .9;
     }
 
-    .field-wrap {
-      position: relative;
+    /* Platform pill */
+    .brand-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      border: 1px solid #bfdbfe; border-radius: 99px;
+      padding: 4px 14px;
+      font-size: .64rem; font-weight: 700;
+      color: var(--blue); letter-spacing: 1.6px; text-transform: uppercase;
+      background: #f0f7ff;
     }
-    .field-wrap .field-icon {
+    .status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #22c55e; box-shadow: 0 0 6px #22c55e;
+      animation: blink 2.5s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── Form ───────────────────────────────── */
+    .form-section { padding: 26px 44px 30px; }
+
+    .field-group { margin-bottom: 16px; }
+    .field-label {
+      display: block; font-size: .71rem; font-weight: 700;
+      color: var(--text-2); letter-spacing: .35px; margin-bottom: 7px;
+    }
+    .field-wrap { position: relative; }
+    .f-icon {
       position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
-      color: #94a3b8; font-size: .95rem;
-      pointer-events: none;
-      transition: color .2s;
+      color: var(--muted); font-size: .9rem; pointer-events: none; transition: color .18s;
     }
     .field-wrap input {
-      width: 100%;
-      padding: 11px 14px 11px 38px;
-      border: 1.5px solid var(--border);
-      border-radius: 10px;
-      font-size: .9rem;
-      color: var(--ink);
-      background: var(--surface);
-      outline: none;
+      width: 100%; padding: 12px 14px 12px 40px;
+      background: #f8fafc; border: 1.5px solid var(--border);
+      border-radius: 10px; font-size: .9rem; color: var(--text);
+      outline: none; font-family: inherit;
       transition: border-color .18s, box-shadow .18s, background .18s;
     }
+    .field-wrap input::placeholder { color: var(--muted); }
     .field-wrap input:focus {
-      border-color: var(--blue);
-      background: #fff;
-      box-shadow: 0 0 0 3.5px rgba(59,130,246,.14);
+      background: #fff; border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.10);
     }
-    .field-wrap input:focus + .field-icon,
-    .field-wrap:has(input:focus) .field-icon {
-      color: var(--blue);
-    }
-    .field-wrap .field-icon { z-index: 1; }
+    .field-wrap:has(input:focus) .f-icon { color: var(--blue); }
 
-    /* password toggle */
     .pw-toggle {
       position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
       background: none; border: none; cursor: pointer;
-      color: #94a3b8; font-size: .95rem; padding: 2px;
-      transition: color .15s;
-      z-index: 2;
+      color: var(--muted); font-size: .9rem; padding: 4px;
+      z-index: 2; transition: color .15s;
     }
-    .pw-toggle:hover { color: var(--muted); }
+    .pw-toggle:hover { color: var(--blue); }
 
-    /* ── Error ───────────────────────────────── */
+    .pw-row {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 7px;
+    }
+    .forgot-link {
+      font-size: .73rem; font-weight: 600;
+      color: var(--blue-l); text-decoration: none; transition: color .15s;
+    }
+    .forgot-link:hover { color: var(--blue-d); text-decoration: underline; }
+
+    /* Remember Me */
+    .remember-row {
+      display: flex; align-items: center; gap: 9px;
+      margin-bottom: 20px; cursor: pointer; user-select: none;
+    }
+    .remember-row input[type="checkbox"] { display: none; }
+    .custom-check {
+      width: 17px; height: 17px; flex-shrink: 0;
+      border: 1.5px solid var(--border); border-radius: 5px;
+      background: #f8fafc; display: flex; align-items: center;
+      justify-content: center; transition: all .15s;
+    }
+    .remember-row input:checked ~ .custom-check {
+      background: var(--blue); border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.13);
+    }
+    .custom-check i { font-size: .65rem; color: #fff; opacity:0; transition: opacity .15s; }
+    .remember-row input:checked ~ .custom-check i { opacity:1; }
+    .remember-label { font-size: .82rem; color: var(--text-2); }
+
+    /* Error */
     .error-bar {
-      display: flex; align-items: center; gap: 8px;
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      border-radius: 9px;
-      padding: 10px 14px;
-      color: #b91c1c;
-      font-size: .82rem;
-      margin-bottom: 18px;
+      display: flex; align-items: center; gap: 9px;
+      background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: 9px; padding: 10px 14px;
+      color: #dc2626; font-size: .8rem; margin-bottom: 16px;
       animation: shake .4s ease;
     }
     @keyframes shake {
-      0%,100% { transform: translateX(0); }
-      20%      { transform: translateX(-5px); }
-      40%      { transform: translateX(5px); }
-      60%      { transform: translateX(-3px); }
-      80%      { transform: translateX(3px); }
+      0%,100%{transform:translateX(0)} 20%{transform:translateX(-5px)}
+      40%{transform:translateX(5px)}   60%{transform:translateX(-3px)}
+      80%{transform:translateX(3px)}
     }
 
-    /* ── Button ──────────────────────────────── */
+    /* Button */
     .btn-login {
-      position: relative; overflow: hidden;
-      width: 100%; padding: 12px;
-      background: linear-gradient(135deg, #2684FF 0%, #0D47D9 100%);
-      border: none; border-radius: 10px;
-      color: #fff;
-      font-size: .92rem; font-weight: 700;
-      letter-spacing: .2px;
-      cursor: pointer;
-      transition: opacity .15s, transform .12s, box-shadow .15s;
-      box-shadow: 0 4px 16px rgba(38,132,255,.35);
-      margin-top: 6px;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, var(--blue-l) 0%, var(--blue) 55%, var(--blue-d) 100%);
+      border: none; border-radius: 10px; color: #fff;
+      font-size: .84rem; font-weight: 700;
+      letter-spacing: 1.4px; text-transform: uppercase;
+      cursor: pointer; font-family: inherit;
+      transition: box-shadow .2s, transform .12s;
+      box-shadow: 0 4px 20px rgba(37,99,235,.35), 0 1px 4px rgba(0,0,0,.12);
     }
     .btn-login:hover {
-      opacity: .93;
-      box-shadow: 0 6px 22px rgba(38,132,255,.45);
+      box-shadow: 0 8px 30px rgba(37,99,235,.48), 0 2px 8px rgba(0,0,0,.16);
+      transform: translateY(-1px);
     }
-    .btn-login:active { transform: scale(.98); }
+    .btn-login:active  { transform: scale(.984); }
+    .btn-login:disabled { opacity:.7; cursor:not-allowed; transform:none; }
+    .btn-arrow { font-size: 1rem; transition: transform .2s; }
+    .btn-login:hover .btn-arrow { transform: translateX(3px); }
 
-    /* Ripple */
-    .ripple {
-      position: absolute;
-      border-radius: 50%;
-      background: rgba(255,255,255,.35);
-      transform: scale(0);
-      animation: ripple-anim .55s linear;
-      pointer-events: none;
+    .spinner {
+      display: none; width: 15px; height: 15px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .6s linear infinite; flex-shrink: 0;
     }
-    @keyframes ripple-anim {
-      to { transform: scale(4); opacity: 0; }
-    }
+    @keyframes spin { to{transform:rotate(360deg)} }
 
-    /* ── Footer hint ─────────────────────────── */
-    .hint {
-      margin-top: 20px;
-      text-align: center;
-      font-size: .75rem;
-      color: #94a3b8;
+    /* Footer */
+    .footer-section {
+      padding: 13px 44px 17px;
+      border-top: 1px solid var(--border);
+      background: #f8fafc;
+    }
+    .footer-hint {
+      font-size: .68rem; color: var(--muted);
       display: flex; align-items: center; justify-content: center; gap: 5px;
     }
-
-    /* ── Cursor click ripple ─────────────────── */
-    .cursor-ripple {
-      position: fixed;
-      border-radius: 50%;
-      pointer-events: none;
-      z-index: 9999;
-      width: 10px; height: 10px;
-      border: 2px solid rgba(38,132,255,.6);
-      transform: translate(-50%, -50%) scale(1);
-      animation: cursor-bloom .55s ease-out forwards;
-    }
-    @keyframes cursor-bloom {
-      to { transform: translate(-50%, -50%) scale(7); opacity: 0; }
-    }
-
-    /* ── Loading spinner on submit ───────────── */
-    .btn-login .spinner {
-      display: none;
-      width: 16px; height: 16px;
-      border: 2px solid rgba(255,255,255,.35);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin .6s linear infinite;
-      vertical-align: middle; margin-right: 6px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .footer-hint i { color: var(--blue-l); }
 
     @media (prefers-reduced-motion: reduce) {
-      .card-wrap { animation: none; }
-      .cursor-ripple, .ripple { animation: none; }
-      .error-bar { animation: none; }
+      .card, .spinner { animation: none; }
+      .error-bar, .status-dot, .c-node { animation: none; }
     }
   </style>
 </head>
 <body>
 
-<div class="bg-canvas"></div>
+<div class="bg-base"></div>
 <div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="bg-streaks">
+  <div class="streak s1"></div><div class="streak s2"></div>
+  <div class="streak s3"></div><div class="streak s4"></div>
+  <div class="streak s5"></div><div class="streak s6"></div>
+</div>
 
 <div class="card-wrap">
 
-  <!-- Brand header -->
-  <div class="brand-header">
-    <div class="logo-mark">
-      <svg viewBox="0 0 26 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path fill-rule="evenodd" clip-rule="evenodd"
-          d="M0 0 H17 Q26 0 26 8 Q26 16 17 16 L25 30 H20 L12 16 H5 V30 H0 Z
-             M5 4 H15 Q21 4 21 8 Q21 12 15 12 H5 Z"
-          fill="white"/>
-      </svg>
-    </div>
-    <div class="brand-name">Rich<span>HR</span></div>
-    <div class="brand-sub">Attendance &amp; Leave · Rich Payment Solutions</div>
-  </div>
+  <!-- ── Data flow particles (orbit card perimeter) ── -->
+  <svg class="flow-svg" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="glow-sm" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur stdDeviation="2.5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glow-lg" x="-100%" y="-100%" width="300%" height="300%">
+        <feGaussianBlur stdDeviation="5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
 
-  <!-- Form panel -->
-  <div class="form-panel">
+    <!-- Path set by JS; particles animate along it -->
+    <path id="fp" d="" stroke="none"/>
 
-    {% if error %}
-    <div class="error-bar">
-      <i class="bi bi-exclamation-circle-fill"></i>
-      {{ error }}
-    </div>
-    {% endif %}
+    <!-- Particle 1 — large bright dot -->
+    <circle r="4.5" fill="#60a5fa" filter="url(#glow-sm)">
+      <animateMotion dur="8s" repeatCount="indefinite" rotate="none">
+        <mpath href="#fp"/>
+      </animateMotion>
+      <animate attributeName="opacity" values="0;.9;.9;0" keyTimes="0;.04;.96;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
 
-    <form method="POST"
-          action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}"
-          id="loginForm">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Particle 2 — medium, half-lap offset -->
+    <circle r="3" fill="#93c5fd" filter="url(#glow-lg)">
+      <animateMotion dur="8s" begin="4s" repeatCount="indefinite" rotate="none">
+        <mpath href="#fp"/>
+      </animateMotion>
+      <animate attributeName="opacity" values="0;.7;.7;0" keyTimes="0;.04;.96;1" dur="8s" begin="4s" repeatCount="indefinite"/>
+    </circle>
 
-      <div class="field-group">
-        <label class="field-label" for="username">Tài khoản</label>
-        <div class="field-wrap">
-          <input type="text" id="username" name="username"
-                 placeholder="username"
-                 autofocus autocomplete="username" required>
-          <i class="bi bi-person field-icon"></i>
+    <!-- Particle 3 — small trailing dot -->
+    <circle r="2" fill="#3b82f6" filter="url(#glow-sm)">
+      <animateMotion dur="8s" begin="1.8s" repeatCount="indefinite" rotate="none">
+        <mpath href="#fp"/>
+      </animateMotion>
+      <animate attributeName="opacity" values="0;.65;.65;0" keyTimes="0;.04;.96;1" dur="8s" begin="1.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Particle 4 — rect "data packet" -->
+    <rect width="14" height="3" rx="1.5" fill="#60a5fa" filter="url(#glow-sm)">
+      <animateMotion dur="11s" begin="2.5s" repeatCount="indefinite" rotate="auto">
+        <mpath href="#fp"/>
+      </animateMotion>
+      <animate attributeName="opacity" values="0;.55;.55;0" keyTimes="0;.04;.96;1" dur="11s" begin="2.5s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- Particle 5 — slow large glow -->
+    <circle r="6" fill="rgba(96,165,250,.35)" filter="url(#glow-lg)">
+      <animateMotion dur="13s" begin="6.5s" repeatCount="indefinite" rotate="none">
+        <mpath href="#fp"/>
+      </animateMotion>
+      <animate attributeName="opacity" values="0;.5;.5;0" keyTimes="0;.04;.96;1" dur="13s" begin="6.5s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+
+  <!-- Corner data nodes -->
+  <div class="c-node tl"></div>
+  <div class="c-node tr"></div>
+  <div class="c-node bl"></div>
+  <div class="c-node br"></div>
+
+  <!-- ── Card ── -->
+  <div class="card">
+
+    <!-- Brand -->
+    <div class="brand">
+      <div class="brand-lockup">
+
+        <!-- Logo: geometric R mark + speed lines -->
+        <div class="logo-icon">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <!--
+                Gradient: sky-blue at speed-line tips → royal blue at stem → deep navy at bowl right.
+                gradientUnits="userSpaceOnUse" so colour maps to actual x-coordinates.
+              -->
+              <linearGradient id="lg" x1="12" y1="0" x2="196" y2="0" gradientUnits="userSpaceOnUse">
+                <stop offset="0%"   stop-color="#5ed4ff"/>
+                <stop offset="26%"  stop-color="#2e6af6"/>
+                <stop offset="100%" stop-color="#1015cc"/>
+              </linearGradient>
+            </defs>
+
+            <!--
+              Speed lines — 3 upper (bowl zone) + 3 lower (leg zone).
+              Each is a right-pointing triangle: tip on left, base at x=58 (stem left edge).
+              Lines decrease in size inward, creating a fan/perspective effect.
+              Gap between groups mirrors the R crossbar height (y=100–124).
+            -->
+            <path d="M12,58  L58,49 L58,66 Z" fill="url(#lg)"/>
+            <path d="M18,76  L58,68 L58,83 Z" fill="url(#lg)"/>
+            <path d="M26,91  L58,85 L58,97 Z" fill="url(#lg)"/>
+
+            <path d="M12,132 L58,123 L58,141 Z" fill="url(#lg)"/>
+            <path d="M18,149 L58,142 L58,156 Z" fill="url(#lg)"/>
+            <path d="M26,163 L58,158 L58,168 Z" fill="url(#lg)"/>
+
+            <!--
+              R letterform.
+
+              Construction grid (200 × 200 viewBox):
+                Stem:      x 58–88  (30 px wide), y 18–182
+                Top arm:   x 88–142, y 18–44    (26 px tall)
+                Bowl:      D-shape, outer radius ≈ 53, center (142, 71)
+                           → top (142,18) → right (196,71) → bottom (142,124)
+                Counter:   same centre, inner radius ≈ 26
+                           → inner top (134,42) → inner right (164,71) → inner bottom (134,100)
+                Arm/crossbar thickness = 26 px each (balanced)
+                Bowl right wall = 196−164 = 32 px (slightly thicker than stem for optical balance)
+                Leg:       outer (142,124)→(180,182), inner (112,124)→(150,182) — 30 px wide, parallel to outer
+
+              The sub-path (counter) is wound clockwise; evenodd rule punches it as a hole.
+            -->
+            <path fill="url(#lg)" fill-rule="evenodd" d="
+              M 58,18 H 142
+              C 173,18 196,42 196,71
+              C 196,100 173,124 142,124
+              L 180,182 H 150 L 112,124 H 88 V 182 H 58 Z
+
+              M 88,44 H 134
+              C 155,44 164,56 164,71
+              C 164,86 155,98 134,98
+              H 88 Z
+            "/>
+          </svg>
+        </div>
+
+        <!-- Wordmark: RICH / line / SYSTEM -->
+        <div class="wordmark">
+          <div class="wm-rich">Rich</div>
+          <div class="wm-rule"></div>
+          <div class="wm-system">System</div>
         </div>
       </div>
 
-      <div class="field-group">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <label class="field-label" for="password" style="margin-bottom:0">Mật khẩu</label>
-          <a href="{{ url_for('forgot_password') }}"
-             style="font-size:.75rem;font-weight:600;color:#2684FF;text-decoration:none;letter-spacing:.1px;transition:color .15s,opacity .15s;opacity:.85"
-             onmouseover="this.style.opacity='1';this.style.color='#0D47D9'"
-             onmouseout="this.style.opacity='.85';this.style.color='#2684FF'">
-            <i class="bi bi-key-fill" style="font-size:.72rem;margin-right:3px"></i>Quên mật khẩu?
-          </a>
-        </div>
-        <div class="field-wrap">
-          <input type="password" id="password" name="password"
-                 placeholder="••••••••"
-                 autocomplete="current-password" required>
-          <i class="bi bi-lock field-icon"></i>
-          <button type="button" class="pw-toggle" id="pwToggle" title="Hiện/ẩn mật khẩu">
-            <i class="bi bi-eye" id="pwIcon"></i>
-          </button>
-        </div>
+      <div class="brand-pill">
+        <div class="status-dot"></div>
+        Internal Operations Platform
       </div>
-
-      <button type="submit" class="btn-login" id="loginBtn">
-        <span class="spinner" id="spinner"></span>
-        <i class="bi bi-box-arrow-in-right" id="btnIcon"></i>
-        <span id="btnText"> &nbsp;Đăng Nhập</span>
-      </button>
-    </form>
-
-    <div class="hint" style="margin-top:20px">
-      <i class="bi bi-shield-lock"></i>
-      Hệ thống nội bộ — chỉ dành cho nhân viên được cấp quyền
     </div>
-  </div>
-</div>
+
+    <!-- Form -->
+    <div class="form-section">
+      {% if error %}
+      <div class="error-bar">
+        <i class="bi bi-exclamation-triangle-fill"></i>{{ error }}
+      </div>
+      {% endif %}
+
+      <form method="POST"
+            action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}"
+            id="loginForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="field-group">
+          <label class="field-label" for="username">Tài khoản</label>
+          <div class="field-wrap">
+            <i class="bi bi-person f-icon"></i>
+            <input type="text" id="username" name="username"
+                   placeholder="Nhập username" autofocus autocomplete="username" required>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="pw-row">
+            <label class="field-label" for="password" style="margin:0">Mật khẩu</label>
+            <a href="{{ url_for('forgot_password') }}" class="forgot-link">Quên mật khẩu?</a>
+          </div>
+          <div class="field-wrap">
+            <i class="bi bi-lock f-icon"></i>
+            <input type="password" id="password" name="password"
+                   placeholder="Nhập mật khẩu" autocomplete="current-password" required>
+            <button type="button" class="pw-toggle" id="pwToggle">
+              <i class="bi bi-eye" id="pwIcon"></i>
+            </button>
+          </div>
+        </div>
+
+        <label class="remember-row">
+          <input type="checkbox" name="remember_me" id="rememberMe">
+          <span class="custom-check"><i class="bi bi-check-lg"></i></span>
+          <span class="remember-label">Ghi nhớ đăng nhập (30 ngày)</span>
+        </label>
+
+        <button type="submit" class="btn-login" id="loginBtn">
+          <span class="spinner" id="spinner"></span>
+          <span id="btnText">Đăng Nhập</span>
+          <i class="bi bi-arrow-right btn-arrow" id="btnArrow"></i>
+        </button>
+      </form>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-section">
+      <div class="footer-hint">
+        <i class="bi bi-shield-lock-fill"></i>
+        Hệ thống nội bộ — chỉ dành cho nhân viên được cấp quyền
+      </div>
+    </div>
+
+  </div><!-- /.card -->
+</div><!-- /.card-wrap -->
 
 <script>
-// ── Password toggle ──────────────────────────────────────
-const pwToggle = document.getElementById('pwToggle');
-const pwInput  = document.getElementById('password');
-const pwIcon   = document.getElementById('pwIcon');
-pwToggle.addEventListener('click', function () {
-  const show = pwInput.type === 'password';
-  pwInput.type = show ? 'text' : 'password';
-  pwIcon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+// ── Password toggle ──
+document.getElementById('pwToggle').addEventListener('click', function () {
+  const inp = document.getElementById('password');
+  const ico = document.getElementById('pwIcon');
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  ico.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
 });
 
-// ── Button ripple ────────────────────────────────────────
-document.getElementById('loginBtn').addEventListener('click', function (e) {
-  const btn = this;
-  const rect = btn.getBoundingClientRect();
-  const size = Math.max(rect.width, rect.height);
-  const x    = e.clientX - rect.left - size / 2;
-  const y    = e.clientY - rect.top  - size / 2;
+// ── Remember username ──
+(function () {
+  const saved = localStorage.getItem('rs_saved_user');
+  if (saved) {
+    document.getElementById('username').value  = saved;
+    document.getElementById('rememberMe').checked = true;
+  }
+})();
 
-  const ripple = document.createElement('span');
-  ripple.className = 'ripple';
-  ripple.style.cssText =
-    `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
-  btn.appendChild(ripple);
-  ripple.addEventListener('animationend', () => ripple.remove());
-});
-
-// ── Submit loading state ─────────────────────────────────
+// ── Form submit ──
 document.getElementById('loginForm').addEventListener('submit', function () {
-  const btn     = document.getElementById('loginBtn');
-  const spinner = document.getElementById('spinner');
-  const icon    = document.getElementById('btnIcon');
-  const text    = document.getElementById('btnText');
-  btn.disabled      = true;
-  spinner.style.display = 'inline-block';
-  icon.style.display    = 'none';
-  text.textContent      = ' Đang đăng nhập…';
+  const uname = document.getElementById('username').value.trim();
+  localStorage[document.getElementById('rememberMe').checked && uname
+    ? 'setItem' : 'removeItem']('rs_saved_user', uname);
+  document.getElementById('spinner').style.display  = 'block';
+  document.getElementById('btnText').textContent    = 'Đang xác thực…';
+  document.getElementById('btnArrow').style.display = 'none';
+  document.getElementById('loginBtn').disabled      = true;
 });
 
-// ── Page-wide cursor click effect ───────────────────────
-document.addEventListener('click', function (e) {
-  const el = document.createElement('div');
-  el.className = 'cursor-ripple';
-  el.style.left = e.clientX + 'px';
-  el.style.top  = e.clientY + 'px';
-  document.body.appendChild(el);
-  el.addEventListener('animationend', () => el.remove());
+// ── Data flow: set path after card renders ──
+window.addEventListener('load', function () {
+  var card = document.querySelector('.card');
+  var svg  = document.querySelector('.flow-svg');
+  var fp   = document.getElementById('fp');
+  var pad  = 16, r = 22;
+
+  var w  = card.offsetWidth;
+  var h  = card.offsetHeight;
+  var sw = w + pad * 2;
+  var sh = h + pad * 2;
+
+  svg.setAttribute('width',   sw);
+  svg.setAttribute('height',  sh);
+  svg.setAttribute('viewBox', '0 0 ' + sw + ' ' + sh);
+
+  var p = pad, pr = pad + r;
+  var d = [
+    'M' + pr + ',' + p,
+    'H' + (sw - pr),
+    'Q' + (sw - p) + ',' + p + ' ' + (sw - p) + ',' + pr,
+    'V' + (sh - pr),
+    'Q' + (sw - p) + ',' + (sh - p) + ' ' + (sw - pr) + ',' + (sh - p),
+    'H' + pr,
+    'Q' + p + ',' + (sh - p) + ' ' + p + ',' + (sh - pr),
+    'V' + pr,
+    'Q' + p + ',' + p + ' ' + pr + ',' + p,
+    'Z'
+  ].join(' ');
+
+  fp.setAttribute('d', d);
+  svg.style.opacity = '1';
 });
 </script>
 </body>

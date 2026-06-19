@@ -142,11 +142,13 @@ def security_middleware():
     if session.get('user_id'):
         last_active = session.get('_last_active', 0)
         now = _dt.now().timestamp()
-        if now - last_active > 1800:
+        timeout = 30 * 24 * 3600 if session.get('remember_me') else 1800
+        if now - last_active > timeout:
             uid, uname = session.get('user_id'), session.get('username', '')
             session.clear()
             db.log_audit(uid, uname, 'SESSION_EXPIRED', 'Phiên hết hạn tự động', request.remote_addr)
-            flash('Phiên đăng nhập đã hết hạn (30 phút không hoạt động).', 'error')
+            msg = 'Phiên đăng nhập đã hết hạn (30 ngày).' if timeout > 1800 else 'Phiên đăng nhập đã hết hạn (30 phút không hoạt động).'
+            flash(msg, 'error')
             return redirect(url_for('login'))
         session['_last_active'] = now
         session.modified = True
@@ -290,6 +292,7 @@ def login():
         user     = db.get_user_by_username(username)
 
         if user and check_password_hash(user['password_hash'], password):
+            remember = request.form.get('remember_me') == 'on'
             session.clear()
             session['user_id']        = user['id']
             session['username']       = user['username']
@@ -298,6 +301,7 @@ def login():
             session['department']     = user['department']
             session['employee_id']    = user.get('employee_id', '')
             session['_last_active']   = _dt.now().timestamp()
+            session['remember_me']    = remember
             session.permanent         = True
             if user.get('must_change_password'):
                 session['must_change_pw'] = True
@@ -2245,7 +2249,10 @@ if __name__ == '__main__':
     sys.stderr = _io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     print('\n' + '='*50)
     print('  Attendance Management System')
-    print('  Mo trinh duyet: http://localhost:5000')
+    import socket as _sock
+    _local_ip = _sock.gethostbyname(_sock.gethostname())
+    print(f'  May tinh nay    : http://localhost:5000')
+    print(f'  May khac cung mang: http://{_local_ip}:5000')
     print('  Nhan Ctrl+C de dung')
     print('='*50 + '\n')
-    app.run(debug=False, host='127.0.0.1', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=5000)

@@ -191,6 +191,64 @@
       .sb-nav a::before { transition: none; }
     }
 
+    /* ── Department switcher ──────────────────────────── */
+    .dept-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--sb-hover-bg);
+      border: 1px solid var(--sb-border);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--ink-2);
+      cursor: pointer;
+      text-align: left;
+      transition: background .12s, border-color .12s;
+    }
+    .dept-btn:hover { background: #e2e8f0; border-color: var(--border-strong); }
+    .dept-btn i { font-size: .85rem; color: var(--accent); flex-shrink: 0; }
+    .dept-btn .dropdown-toggle::after { margin-left: auto; }
+    .dept-btn::after {
+      margin-left: auto;
+      opacity: .5;
+    }
+    .dept-menu {
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius) !important;
+      box-shadow: var(--shadow) !important;
+      padding: 4px !important;
+      min-width: 0;
+    }
+    .dept-item {
+      display: flex !important;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px !important;
+      border-radius: var(--radius-sm) !important;
+      color: var(--ink-2) !important;
+      font-size: .8rem !important;
+    }
+    .dept-item i { font-size: 1rem; color: var(--ink-4); flex-shrink: 0; }
+    .dept-item.active { background: var(--accent-light) !important; color: var(--accent) !important; }
+    .dept-item.active i { color: var(--accent); }
+    .dept-item.disabled { opacity: .55; cursor: default; }
+    .dept-item-name { font-weight: 600; font-size: .78rem; line-height: 1.2; }
+    .dept-item-sub  { font-size: .68rem; color: var(--ink-4); margin-top: 1px; }
+    .dept-item.active .dept-item-sub { color: var(--accent); opacity: .7; }
+    .dept-soon {
+      margin-left: auto;
+      font-size: .62rem;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: var(--ink-4);
+      border-radius: 4px;
+      padding: 2px 5px;
+      letter-spacing: .3px;
+      flex-shrink: 0;
+    }
+
     .badge-review {
       margin-left: auto;
       background: #ef4444;
@@ -415,18 +473,49 @@
 <aside class="sidebar">
 
   <!-- Brand -->
-  <div class="sb-brand">
-    <div class="sb-logo">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="2.5" y="4" width="19" height="17" rx="2.5" stroke="white" stroke-width="1.7"/>
-        <path d="M2.5 9h19" stroke="white" stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M7.5 2v4M16.5 2v4" stroke="white" stroke-width="1.7" stroke-linecap="round"/>
-        <path d="M7 15.5l2.8 2.8 6.5-6.5" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+  <div class="sb-brand" style="flex-direction:column;align-items:flex-start;gap:8px;padding-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="sb-logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="2.5" y="4" width="19" height="17" rx="2.5" stroke="white" stroke-width="1.7"/>
+          <path d="M2.5 9h19" stroke="white" stroke-width="1.7" stroke-linecap="round"/>
+          <path d="M7.5 2v4M16.5 2v4" stroke="white" stroke-width="1.7" stroke-linecap="round"/>
+          <path d="M7 15.5l2.8 2.8 6.5-6.5" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="sb-wordmark">
+        <strong>Rich<span>SYSTEM</span></strong>
+        <small>Internal Operations</small>
+      </div>
     </div>
-    <div class="sb-wordmark">
-      <strong>Rich<span>HR</span></strong>
-      <small>Attendance &amp; Leave</small>
+
+    <!-- Department switcher -->
+    <div class="dept-switcher dropdown w-100">
+      <button class="dept-btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-buildings"></i>
+        <span id="dept-label">HR Department</span>
+      </button>
+      <ul class="dropdown-menu dept-menu w-100">
+        <li>
+          <a class="dropdown-item dept-item active" href="{{ url_for('index') }}">
+            <i class="bi bi-person-badge"></i>
+            <div>
+              <div class="dept-item-name">HR Department</div>
+              <div class="dept-item-sub">Attendance &amp; Leave</div>
+            </div>
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item dept-item disabled" href="#" tabindex="-1">
+            <i class="bi bi-truck"></i>
+            <div>
+              <div class="dept-item-name">Delivery Department</div>
+              <div class="dept-item-sub">Sắp ra mắt</div>
+            </div>
+            <span class="dept-soon">Soon</span>
+          </a>
+        </li>
+      </ul>
     </div>
   </div>
 

@@ -34,5 +34,8 @@ desktop.ini
 # Logs
 *.log
 
+# Runtime config (contains secrets: SMTP keys, API keys)
+system_config.json
+
 # Impeccable dev tool (optional)
 .impeccable/
