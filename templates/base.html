@@ -490,14 +490,15 @@
     </div>
 
     <!-- Department switcher -->
+    {% set in_delivery = request.path.startswith('/delivery') %}
     <div class="dept-switcher dropdown w-100">
       <button class="dept-btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-buildings"></i>
-        <span id="dept-label">HR Department</span>
+        <i class="bi bi-{% if in_delivery %}truck{% else %}person-badge{% endif %}"></i>
+        <span>{% if in_delivery %}Delivery Department{% else %}HR Department{% endif %}</span>
       </button>
       <ul class="dropdown-menu dept-menu w-100">
         <li>
-          <a class="dropdown-item dept-item active" href="{{ url_for('index') }}">
+          <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}" href="{{ url_for('index') }}">
             <i class="bi bi-person-badge"></i>
             <div>
               <div class="dept-item-name">HR Department</div>
@@ -506,13 +507,12 @@
           </a>
         </li>
         <li>
-          <a class="dropdown-item dept-item disabled" href="#" tabindex="-1">
+          <a class="dropdown-item dept-item {% if in_delivery %}active{% endif %}" href="{{ url_for('delivery') }}">
             <i class="bi bi-truck"></i>
             <div>
               <div class="dept-item-name">Delivery Department</div>
-              <div class="dept-item-sub">Sắp ra mắt</div>
+              <div class="dept-item-sub">Giao Hàng &amp; Kho Máy</div>
             </div>
-            <span class="dept-soon">Soon</span>
           </a>
         </li>
       </ul>
@@ -531,6 +531,14 @@
     <a href="{{ url_for('portal') }}" class="{{ 'active' if request.path == '/portal' }}">
       <i class="bi bi-person-lines-fill"></i> Chấm Công Của Tôi
     </a>
+    <div class="sb-section">Giao Hàng</div>
+    <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
+      <i class="bi bi-truck"></i> Đơn Giao Hàng
+    </a>
+    <a href="{{ url_for('delivery_inventory') }}" class="{{ 'active' if request.path == '/delivery/inventory' }}">
+      <i class="bi bi-box-seam"></i> Kho Máy
+    </a>
+    {% elif in_delivery %}
     <div class="sb-section">Giao Hàng</div>
     <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
       <i class="bi bi-truck"></i> Đơn Giao Hàng
@@ -567,13 +575,6 @@
     </a>
     <a href="{{ url_for('exports') }}" class="{{ 'active' if request.path == '/exports' }}">
       <i class="bi bi-clock-history"></i> Lịch Sử Export
-    </a>
-    <div class="sb-section">Giao Hàng</div>
-    <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
-      <i class="bi bi-truck"></i> Đơn Giao Hàng
-    </a>
-    <a href="{{ url_for('delivery_inventory') }}" class="{{ 'active' if request.path == '/delivery/inventory' }}">
-      <i class="bi bi-box-seam"></i> Kho Máy
     </a>
     <div class="sb-section">Cài Đặt</div>
     <a href="{{ url_for('employees') }}" class="{{ 'active' if request.path == '/employees' }}">
