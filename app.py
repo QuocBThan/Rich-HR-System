@@ -1999,6 +1999,198 @@ def delivery_inventory_delete(inv_id):
 
 
 # ------------------------------------------------------------------ #
+# DELIVERY — RETURNS (track returns + auto email return label)
+# ------------------------------------------------------------------ #
+
+_RETURN_STATUS_LABEL = {
+    'requested':  'Chờ thu hồi',
+    'in_transit': 'Khách đang gửi về',
+    'received':   'Đã nhận lại máy',
+}
+
+
+def _return_label_html(r):
+    """The HTML 'return label' emailed to the customer."""
+    cond_txt = {'new': 'Máy mới', 'used': 'Máy đã qua sử dụng'}.get(r.get('machine_condition'), '')
+    return f'''
+<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+  <div style="background:#7c2d12;border-radius:14px;padding:26px 30px;margin-bottom:22px">
+    <div style="color:#fed7aa;font-size:.72rem;letter-spacing:1px;text-transform:uppercase">Rich Payment Solutions</div>
+    <h1 style="color:#fff;font-size:1.35rem;margin:6px 0 0;font-weight:800">Phiếu Trả Máy</h1>
+    <div style="color:#fde4cf;font-size:.9rem;margin-top:6px">Mã thu hồi: <strong style="color:#fff">{r['return_code']}</strong></div>
+  </div>
+  <p style="color:#334155;font-size:.95rem">Xin chào <strong>{r['customer_name']}</strong>,</p>
+  <p style="color:#475569;font-size:.9rem;line-height:1.6">
+    Chúng tôi đã tạo yêu cầu thu hồi thiết bị bên dưới. Vui lòng <strong>in phiếu này dán lên kiện hàng</strong>
+    (hoặc đưa cho nhân viên đến nhận) để chúng tôi đối chiếu khi nhận lại máy.
+  </p>
+  <div style="border:2px dashed #c2410c;border-radius:12px;padding:18px;text-align:center;margin:20px 0">
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Mã thu hồi</div>
+    <div style="font-size:1.6rem;font-weight:800;letter-spacing:3px;color:#7c2d12;font-family:monospace">{r['return_code']}</div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:.88rem">
+    <tr><td style="padding:9px 0;color:#94a3b8;width:42%">Khách hàng</td><td style="padding:9px 0;color:#0f172a;font-weight:600">{r['customer_name']}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Địa chỉ</td><td style="padding:9px 0;color:#0f172a">{r.get('customer_address') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Điện thoại</td><td style="padding:9px 0;color:#0f172a">{r.get('customer_phone') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Thiết bị</td><td style="padding:9px 0;color:#0f172a;font-weight:600">{r.get('machine_model') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Serial máy</td><td style="padding:9px 0;color:#0f172a"><code>{r.get('machine_serial') or '—'}</code> <span style="color:#64748b">{cond_txt}</span></td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Đơn giao gốc</td><td style="padding:9px 0;color:#0f172a">{r.get('delivery_code') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Lý do thu hồi</td><td style="padding:9px 0;color:#0f172a">{r.get('reason') or '—'}</td></tr>
+  </table>
+  <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin:18px 0">
+    <div style="color:#9a3412;font-size:.82rem;line-height:1.6">
+      <strong>Hướng dẫn:</strong> Đóng gói máy cùng phụ kiện (sạc, dây), dán phiếu này lên kiện hàng.
+      Nhân viên của chúng tôi sẽ liên hệ hẹn lịch đến nhận. Vui lòng giữ máy ở tình trạng tốt.
+    </div>
+  </div>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p style="color:#cbd5e1;font-size:.75rem;text-align:center">Rich Payment Solutions · Delivery Team</p>
+</div>'''
+
+
+def _send_return_label(rec):
+    """Send the return label email; raises on SMTP failure."""
+    _send_email(rec['customer_email'],
+                f'Phiếu trả máy {rec["return_code"]} — Rich Payment Solutions',
+                _return_label_html(rec))
+
+
+@app.route('/delivery/returns')
+@delivery_required
+def delivery_returns():
+    filters = {k: v for k, v in {
+        'status': request.args.get('status'),
+        'q':      request.args.get('q'),
+    }.items() if v}
+    returns      = db.get_all_returns(filters)
+    stats        = db.get_returns_stats()
+    returnable   = db.get_returnable_deliveries()
+    return render_template('delivery_returns.html',
+                           returns=returns,
+                           stats=stats,
+                           returnable=returnable,
+                           filters=filters,
+                           status_labels=_RETURN_STATUS_LABEL,
+                           current_user=session.get('display_name', ''))
+
+
+@app.route('/delivery/returns/create', methods=['POST'])
+@delivery_required
+def delivery_return_create():
+    customer_name = request.form.get('customer_name', '').strip()
+    delivery_id   = request.form.get('delivery_id', '').strip()
+
+    data = {
+        'handled_by': session.get('display_name', ''),
+        'reason':     request.form.get('reason', '').strip(),
+        'notes':      request.form.get('notes', '').strip(),
+    }
+
+    # If created from an existing delivery, copy its customer + machine info
+    if delivery_id:
+        dlv = db.get_delivery_by_id(int(delivery_id))
+        if not dlv:
+            flash('Đơn giao không tồn tại.', 'error')
+            return redirect(url_for('delivery_returns'))
+        data.update({
+            'delivery_id':       dlv['id'],
+            'delivery_code':     dlv['delivery_code'],
+            'customer_name':     dlv['customer_name'],
+            'customer_email':    dlv['customer_email'],
+            'customer_phone':    dlv['customer_phone'],
+            'customer_address':  dlv['customer_address'],
+            'machine_serial':    dlv['machine_serial'],
+            'machine_model':     dlv['machine_model'],
+            'machine_condition': dlv['machine_condition'],
+        })
+    else:
+        if not customer_name:
+            flash('Tên khách hàng là bắt buộc khi tạo thu hồi thủ công.', 'error')
+            return redirect(url_for('delivery_returns'))
+        data.update({
+            'customer_name':     customer_name,
+            'customer_email':    request.form.get('customer_email', '').strip(),
+            'customer_phone':    request.form.get('customer_phone', '').strip(),
+            'customer_address':  request.form.get('customer_address', '').strip(),
+            'machine_serial':    request.form.get('machine_serial', '').strip(),
+            'machine_model':     request.form.get('machine_model', '').strip(),
+            'machine_condition': request.form.get('machine_condition', '').strip(),
+        })
+
+    code = db.create_return(data)
+    db.log_audit(session['user_id'], session['username'], 'RETURN_CREATED',
+                 f'{code} → {data["customer_name"]}', request.remote_addr)
+
+    # Auto-send the return label if requested and email present
+    auto = request.form.get('send_label') == '1'
+    msg  = f'✅ Đã tạo yêu cầu thu hồi {code} cho {data["customer_name"]}.'
+    if auto:
+        rec = db.get_all_returns({'q': code})
+        rec = rec[0] if rec else None
+        if rec and rec.get('customer_email'):
+            try:
+                _send_return_label(rec)
+                db.mark_return_label_sent(rec['id'])
+                db.log_audit(session['user_id'], session['username'], 'RETURN_LABEL_SENT',
+                             f'{code} → {rec["customer_email"]}', request.remote_addr)
+                msg += f' Đã gửi phiếu trả tới {rec["customer_email"]}.'
+            except Exception as e:
+                msg += f' ⚠️ Nhưng KHÔNG gửi được phiếu: {e}'
+        else:
+            msg += ' ⚠️ Chưa gửi phiếu vì thiếu email khách.'
+    flash(msg, 'success')
+    return redirect(url_for('delivery_returns'))
+
+
+@app.route('/delivery/returns/<int:return_id>/send-label', methods=['POST'])
+@delivery_required
+def delivery_return_send_label(return_id):
+    rec = db.get_return_by_id(return_id)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Yêu cầu thu hồi không tồn tại'}), 404
+    if not rec.get('customer_email'):
+        return jsonify({'ok': False, 'error': 'Yêu cầu này chưa có email khách hàng.'})
+    try:
+        _send_return_label(rec)
+        db.mark_return_label_sent(return_id)
+        db.log_audit(session['user_id'], session['username'], 'RETURN_LABEL_SENT',
+                     f'{rec["return_code"]} → {rec["customer_email"]}', request.remote_addr)
+        return jsonify({'ok': True, 'message': f'Đã gửi phiếu trả tới {rec["customer_email"]}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/delivery/returns/<int:return_id>/status', methods=['POST'])
+@delivery_required
+def delivery_return_status(return_id):
+    rec = db.get_return_by_id(return_id)
+    if not rec:
+        flash('Yêu cầu thu hồi không tồn tại.', 'error')
+        return redirect(url_for('delivery_returns'))
+    status = request.form.get('status', '').strip()
+    if status not in ('requested', 'in_transit', 'received'):
+        flash('Trạng thái không hợp lệ.', 'error')
+        return redirect(url_for('delivery_returns'))
+    db.update_return_status(return_id, status)
+    db.log_audit(session['user_id'], session['username'], 'RETURN_STATUS',
+                 f'{rec["return_code"]} → {status}', request.remote_addr)
+    flash(f'✅ Đã cập nhật trạng thái thu hồi {rec["return_code"]}.', 'success')
+    return redirect(url_for('delivery_returns'))
+
+
+@app.route('/delivery/returns/<int:return_id>/delete', methods=['POST'])
+@delivery_required
+def delivery_return_delete(return_id):
+    rec = db.get_return_by_id(return_id)
+    db.delete_return(return_id)
+    if rec:
+        db.log_audit(session['user_id'], session['username'], 'RETURN_DELETED',
+                     rec['return_code'], request.remote_addr)
+    flash('✅ Đã xóa yêu cầu thu hồi.', 'success')
+    return redirect(url_for('delivery_returns'))
+
+
+# ------------------------------------------------------------------ #
 # LARK API SYNC
 # ------------------------------------------------------------------ #
 

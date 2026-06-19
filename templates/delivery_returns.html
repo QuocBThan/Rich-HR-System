@@ -1,0 +1,278 @@
+{% extends 'base.html' %}
+{% block title %}Thu Hồi Máy{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-end">
+  <div>
+    <h4><i class="bi bi-arrow-counterclockwise me-2"></i>Thu Hồi Máy (Returns)</h4>
+    <div class="page-sub">Theo dõi máy thu hồi từ khách &amp; tự động gửi phiếu trả (return label) cho khách qua email.</div>
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createReturnModal">
+    <i class="bi bi-plus-lg me-1"></i> Tạo Yêu Cầu Thu Hồi
+  </button>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  {% set cards = [
+    ('Tổng yêu cầu', stats.total, '#0f172a', 'bi-clipboard-data'),
+    ('Chờ thu hồi', stats.requested, '#c2410c', 'bi-hourglass-split'),
+    ('Khách đang gửi', stats.in_transit, '#1d4ed8', 'bi-truck'),
+    ('Đã nhận lại', stats.received, '#15803d', 'bi-check2-circle'),
+    ('Chưa gửi phiếu', stats.pending_label, '#a16207', 'bi-envelope'),
+  ] %}
+  {% for label, val, color, icon in cards %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body py-3 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1" style="color:{{ color }}">
+          <i class="bi {{ icon }}"></i>
+          <small style="font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8">{{ label }}</small>
+        </div>
+        <div style="font-size:1.5rem;font-weight:800;color:{{ color }}">{{ val }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filter -->
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label">Trạng thái</label>
+        <select name="status" class="form-select form-select-sm" style="min-width:170px">
+          <option value="">— Tất cả —</option>
+          {% for k, v in status_labels.items() %}
+          <option value="{{ k }}" {{ 'selected' if filters.status == k }}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Tìm kiếm</label>
+        <input type="text" name="q" value="{{ filters.q or '' }}" placeholder="Khách / mã RT / serial"
+               class="form-control form-control-sm" style="min-width:200px">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Lọc</button>
+        <a href="{{ url_for('delivery_returns') }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Returns table -->
+<div class="card">
+  <div class="card-header py-3">Danh Sách Thu Hồi ({{ returns|length }})</div>
+  {% if returns %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.82rem">
+      <thead>
+        <tr>
+          <th>Mã / Khách hàng</th>
+          <th>Máy</th>
+          <th>Lý do</th>
+          <th>Phiếu trả</th>
+          <th>Trạng thái</th>
+          <th style="min-width:150px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in returns %}
+        {% set st_style = {
+            'requested':  ('#fff7ed', '#c2410c'),
+            'in_transit': ('#eff6ff', '#1d4ed8'),
+            'received':   ('#f0fdf4', '#15803d'),
+        }[r.status] %}
+        <tr>
+          <td>
+            <code>{{ r.return_code }}</code>
+            {% if r.delivery_code %}<span style="color:#cbd5e1">· {{ r.delivery_code }}</span>{% endif %}<br>
+            <strong>{{ r.customer_name }}</strong>
+            {% if r.customer_email %}<br><small style="color:#94a3b8"><i class="bi bi-envelope"></i> {{ r.customer_email }}</small>{% endif %}
+            {% if r.customer_phone %}<br><small style="color:#94a3b8"><i class="bi bi-telephone"></i> {{ r.customer_phone }}</small>{% endif %}
+          </td>
+          <td>
+            {% if r.machine_serial %}
+              <strong>{{ r.machine_model or '—' }}</strong><br>
+              <code>{{ r.machine_serial }}</code>
+            {% else %}
+              <span style="color:#cbd5e1">—</span>
+            {% endif %}
+          </td>
+          <td style="color:#64748b;max-width:180px">{{ r.reason or '—' }}</td>
+          <td>
+            {% if r.label_sent %}
+              <span class="badge badge-ok" title="{{ r.label_sent_at }}"><i class="bi bi-check2"></i> Đã gửi</span>
+            {% else %}
+              <button class="btn btn-outline-primary btn-sm send-label-btn" data-id="{{ r.id }}"
+                      {{ 'disabled' if not r.customer_email }}>
+                <i class="bi bi-envelope-arrow-up"></i> Gửi phiếu
+              </button>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge" style="background:{{ st_style[0] }};color:{{ st_style[1] }};font-weight:600">
+              {{ status_labels[r.status] }}
+            </span>
+            {% if r.status == 'received' and r.received_at %}
+              <br><small style="color:#94a3b8">{{ r.received_at }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.status != 'received' %}
+            <form method="POST" action="{{ url_for('delivery_return_status', return_id=r.id) }}" style="display:inline">
+              {% if r.status == 'requested' %}
+              <button name="status" value="in_transit" class="btn btn-outline-primary btn-sm" title="Khách đang gửi về">
+                <i class="bi bi-truck"></i>
+              </button>
+              {% endif %}
+              <button name="status" value="received" class="btn btn-outline-success btn-sm" title="Đã nhận lại máy"
+                      onclick="return confirm('Xác nhận đã nhận lại máy {{ r.machine_serial or r.return_code }}? Máy sẽ được đưa về kho (returned).')">
+                <i class="bi bi-box-arrow-in-down"></i>
+              </button>
+            </form>
+            {% endif %}
+            <form method="POST" action="{{ url_for('delivery_return_delete', return_id=r.id) }}"
+                  style="display:inline" onsubmit="return confirm('Xóa yêu cầu thu hồi {{ r.return_code }}?')">
+              <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center" style="color:#94a3b8">Chưa có yêu cầu thu hồi nào.</div>
+  {% endif %}
+</div>
+
+<!-- ── Create return modal ────────────────────────────────────── -->
+<div class="modal fade" id="createReturnModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('delivery_return_create') }}">
+        <div class="modal-header">
+          <h5 class="modal-title" style="font-size:1rem;font-weight:700">Tạo Yêu Cầu Thu Hồi</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Từ đơn đã giao (tự điền thông tin khách &amp; máy)</label>
+            <select name="delivery_id" id="rtDelivery" class="form-select" onchange="toggleManual(this.value)">
+              <option value="">— Nhập thủ công bên dưới —</option>
+              {% for d in returnable %}
+              <option value="{{ d.id }}">
+                {{ d.delivery_code }} · {{ d.customer_name }} · {{ d.machine_serial or 'N/A' }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Chỉ hiện các đơn đang ở trạng thái “đã giao” và chưa có yêu cầu thu hồi.</div>
+          </div>
+
+          <div id="manualFields">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Tên khách hàng *</label>
+                <input type="text" name="customer_name" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Email khách (để gửi phiếu)</label>
+                <input type="email" name="customer_email" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Điện thoại</label>
+                <input type="text" name="customer_phone" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Serial máy</label>
+                <input type="text" name="machine_serial" class="form-control">
+              </div>
+              <div class="col-12">
+                <label class="form-label">Địa chỉ</label>
+                <input type="text" name="customer_address" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Model máy</label>
+                <input type="text" name="machine_model" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Tình trạng</label>
+                <select name="machine_condition" class="form-select">
+                  <option value="">—</option>
+                  <option value="new">Máy mới</option>
+                  <option value="used">Máy đã qua sử dụng</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-12">
+              <label class="form-label">Lý do thu hồi</label>
+              <input type="text" name="reason" class="form-control" placeholder="VD: Hết hợp đồng / đổi máy / lỗi thiết bị">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="send_label" value="1" id="sendLabelChk" checked>
+                <label class="form-check-label" for="sendLabelChk">
+                  <strong>Tự động gửi phiếu trả (return label) cho khách qua email ngay khi tạo</strong>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary btn-sm">Tạo &amp; gửi phiếu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// When picking an existing delivery, hide manual fields (data is copied server-side)
+function toggleManual(val) {
+  const m = document.getElementById('manualFields');
+  const nameInput = m.querySelector('input[name="customer_name"]');
+  if (val) {
+    m.style.display = 'none';
+    if (nameInput) nameInput.required = false;
+  } else {
+    m.style.display = '';
+    if (nameInput) nameInput.required = true;
+  }
+}
+toggleManual(document.getElementById('rtDelivery').value);
+
+// Send return label (AJAX)
+document.querySelectorAll('.send-label-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const b = this;
+    b.disabled = true;
+    b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('/delivery/returns/' + b.dataset.id + '/send-label', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) {
+          b.outerHTML = '<span class="badge badge-ok"><i class="bi bi-check2"></i> Đã gửi</span>';
+        } else {
+          alert('Không gửi được phiếu: ' + (res.error || 'lỗi không xác định'));
+          b.disabled = false;
+          b.innerHTML = '<i class="bi bi-envelope-arrow-up"></i> Gửi phiếu';
+        }
+      })
+      .catch(function (e) {
+        alert('Lỗi: ' + e);
+        b.disabled = false;
+        b.innerHTML = '<i class="bi bi-envelope-arrow-up"></i> Gửi phiếu';
+      });
+  });
+});
+</script>
+{% endblock %}

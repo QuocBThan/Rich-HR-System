@@ -566,6 +566,9 @@
     <a href="{{ url_for('delivery_inventory') }}" class="{{ 'active' if request.path == '/delivery/inventory' }}">
       <i class="bi bi-box-seam"></i> Kho Máy
     </a>
+    <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
+      <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
+    </a>
     {% elif in_delivery %}
     <div class="sb-section">Giao Hàng</div>
     <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
@@ -573,6 +576,9 @@
     </a>
     <a href="{{ url_for('delivery_inventory') }}" class="{{ 'active' if request.path == '/delivery/inventory' }}">
       <i class="bi bi-box-seam"></i> Kho Máy
+    </a>
+    <a href="{{ url_for('delivery_returns') }}" class="{{ 'active' if request.path == '/delivery/returns' }}">
+      <i class="bi bi-arrow-counterclockwise"></i> Thu Hồi Máy
     </a>
     {% else %}
     <div class="sb-section">Chính</div>

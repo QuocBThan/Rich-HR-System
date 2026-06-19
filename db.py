@@ -188,6 +188,30 @@ def init_db():
                 created_at        TEXT DEFAULT (datetime('now','localtime'))
             )
         ''')
+        # Return tracking — machines coming back from customers.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS returns (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_code       TEXT NOT NULL UNIQUE,
+                delivery_id       INTEGER DEFAULT NULL,
+                delivery_code     TEXT DEFAULT '',
+                customer_name     TEXT NOT NULL,
+                customer_email    TEXT DEFAULT '',
+                customer_phone    TEXT DEFAULT '',
+                customer_address  TEXT DEFAULT '',
+                machine_serial    TEXT DEFAULT '',
+                machine_model     TEXT DEFAULT '',
+                machine_condition TEXT DEFAULT '',
+                reason            TEXT DEFAULT '',
+                status            TEXT DEFAULT 'requested',  -- requested | in_transit | received
+                label_sent        INTEGER DEFAULT 0,
+                label_sent_at     TEXT DEFAULT '',
+                received_at       TEXT DEFAULT '',
+                handled_by        TEXT DEFAULT '',
+                notes             TEXT DEFAULT '',
+                created_at        TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
 
 
 @contextmanager
@@ -1162,5 +1186,134 @@ def get_delivery_stats():
         'en_route':  by_status.get('en_route', 0),
         'delivered': by_status.get('delivered', 0),
         'returned':  by_status.get('returned', 0),
+        'pending_label': pending_label,
+    }
+
+
+# ------------------------------------------------------------------ #
+# DELIVERY — RETURNS (machine returns coming back from customers)
+# ------------------------------------------------------------------ #
+
+def get_returnable_deliveries():
+    """Deliveries whose machine is at the customer and not yet returned."""
+    with get_db() as conn:
+        rows = conn.execute('''
+            SELECT * FROM deliveries
+            WHERE status = 'delivered'
+              AND id NOT IN (SELECT delivery_id FROM returns WHERE delivery_id IS NOT NULL)
+            ORDER BY created_at DESC
+        ''').fetchall()
+        return [dict(r) for r in rows]
+
+
+def _generate_return_code(conn, year, month):
+    month_str = f'{year}{month:02d}'
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM returns WHERE return_code LIKE ?",
+        (f'RT-{month_str}-%',)
+    ).fetchone()['c']
+    return f'RT-{month_str}-{count + 1:03d}'
+
+
+def create_return(data):
+    from datetime import datetime as _dt
+    now = _dt.now()
+    with get_db() as conn:
+        code = _generate_return_code(conn, now.year, now.month)
+        conn.execute('''
+            INSERT INTO returns
+                (return_code, delivery_id, delivery_code, customer_name, customer_email,
+                 customer_phone, customer_address, machine_serial, machine_model,
+                 machine_condition, reason, handled_by, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            code, data.get('delivery_id'), data.get('delivery_code', ''),
+            data['customer_name'], data.get('customer_email', ''),
+            data.get('customer_phone', ''), data.get('customer_address', ''),
+            data.get('machine_serial', ''), data.get('machine_model', ''),
+            data.get('machine_condition', ''), data.get('reason', ''),
+            data.get('handled_by', ''), data.get('notes', ''),
+        ))
+    return code
+
+
+def get_all_returns(filters=None):
+    filters = filters or {}
+    where, params = [], []
+    if filters.get('status'):
+        where.append('status = ?'); params.append(filters['status'])
+    if filters.get('q'):
+        where.append('(customer_name LIKE ? OR return_code LIKE ? OR machine_serial LIKE ?)')
+        params += [f"%{filters['q']}%"] * 3
+    w = ('WHERE ' + ' AND '.join(where)) if where else ''
+    with get_db() as conn:
+        rows = conn.execute(
+            f'SELECT * FROM returns {w} ORDER BY created_at DESC', params
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_return_by_id(return_id):
+    with get_db() as conn:
+        row = conn.execute('SELECT * FROM returns WHERE id = ?', (return_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_return_status(return_id, status):
+    from datetime import datetime as _dt
+    with get_db() as conn:
+        rec = conn.execute('SELECT * FROM returns WHERE id = ?', (return_id,)).fetchone()
+        if not rec:
+            return
+        if status == 'received':
+            ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(
+                "UPDATE returns SET status = 'received', received_at = ? WHERE id = ?",
+                (ts, return_id)
+            )
+            # Machine is physically back → mark inventory returned and close the delivery
+            if rec['machine_serial']:
+                conn.execute(
+                    "UPDATE delivery_inventory SET status = 'returned' WHERE serial_no = ?",
+                    (rec['machine_serial'],)
+                )
+            if rec['delivery_id']:
+                conn.execute(
+                    "UPDATE deliveries SET status = 'returned', returned_at = ?, return_reason = ? WHERE id = ?",
+                    (ts, rec['reason'] or 'Đã thu hồi', rec['delivery_id'])
+                )
+        else:
+            conn.execute('UPDATE returns SET status = ? WHERE id = ?', (status, return_id))
+
+
+def mark_return_label_sent(return_id):
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE returns SET label_sent = 1, label_sent_at = ? WHERE id = ?',
+            (ts, return_id)
+        )
+
+
+def delete_return(return_id):
+    with get_db() as conn:
+        conn.execute('DELETE FROM returns WHERE id = ?', (return_id,))
+
+
+def get_returns_stats():
+    with get_db() as conn:
+        rows = conn.execute(
+            'SELECT status, COUNT(*) AS c FROM returns GROUP BY status'
+        ).fetchall()
+        by_status = {r['status']: r['c'] for r in rows}
+        pending_label = conn.execute(
+            "SELECT COUNT(*) AS c FROM returns WHERE label_sent = 0 AND status != 'received'"
+        ).fetchone()['c']
+    return {
+        'total':       sum(by_status.values()),
+        'requested':   by_status.get('requested', 0),
+        'in_transit':  by_status.get('in_transit', 0),
+        'received':    by_status.get('received', 0),
         'pending_label': pending_label,
     }
