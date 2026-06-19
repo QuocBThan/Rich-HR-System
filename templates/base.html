@@ -498,7 +498,7 @@
       </button>
       <ul class="dropdown-menu dept-menu w-100">
         <li>
-          <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}" href="{{ url_for('index') }}">
+          <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}" href="{{ url_for('portal') if current_role in ('delivery', 'employee') else url_for('index') }}">
             <i class="bi bi-person-badge"></i>
             <div>
               <div class="dept-item-name">HR Department</div>
