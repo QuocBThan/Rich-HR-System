@@ -148,6 +148,47 @@ def init_db():
             )
         ''')
 
+        # ── DELIVERY DEPARTMENT ───────────────────────────────────────
+        # Inventory of machines/terminals — new & used stock.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS delivery_inventory (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                serial_no   TEXT NOT NULL UNIQUE,
+                model       TEXT DEFAULT '',
+                condition   TEXT DEFAULT 'new',        -- 'new' | 'used'
+                status      TEXT DEFAULT 'in_stock',   -- in_stock | assigned | delivered | returned | retired
+                notes       TEXT DEFAULT '',
+                created_at  TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
+        # Delivery jobs — customer, assigned machine, location/time log, returns.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS deliveries (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                delivery_code     TEXT NOT NULL UNIQUE,
+                customer_name     TEXT NOT NULL,
+                customer_email    TEXT DEFAULT '',
+                customer_phone    TEXT DEFAULT '',
+                customer_address  TEXT DEFAULT '',
+                machine_serial    TEXT DEFAULT '',
+                machine_model     TEXT DEFAULT '',
+                machine_condition TEXT DEFAULT '',
+                status            TEXT DEFAULT 'scheduled',  -- scheduled | en_route | delivered | returned
+                scheduled_date    TEXT DEFAULT '',
+                depart_time       TEXT DEFAULT '',
+                arrive_time       TEXT DEFAULT '',
+                setup_time        TEXT DEFAULT '',
+                location          TEXT DEFAULT '',
+                assigned_to       TEXT DEFAULT '',
+                label_sent        INTEGER DEFAULT 0,
+                label_sent_at     TEXT DEFAULT '',
+                returned_at       TEXT DEFAULT '',
+                return_reason     TEXT DEFAULT '',
+                notes             TEXT DEFAULT '',
+                created_at        TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
+
 
 @contextmanager
 def get_db():
@@ -872,3 +913,254 @@ def get_dashboard_stats():
             'employee_count': employees,
             'recent':         [dict(r) for r in recent],
         }
+
+
+# ------------------------------------------------------------------ #
+# DELIVERY — INVENTORY
+# ------------------------------------------------------------------ #
+
+def get_all_inventory(filters=None):
+    filters = filters or {}
+    where, params = [], []
+    if filters.get('condition'):
+        where.append('condition = ?'); params.append(filters['condition'])
+    if filters.get('status'):
+        where.append('status = ?'); params.append(filters['status'])
+    if filters.get('q'):
+        where.append('(serial_no LIKE ? OR model LIKE ?)')
+        params += [f"%{filters['q']}%", f"%{filters['q']}%"]
+    w = ('WHERE ' + ' AND '.join(where)) if where else ''
+    with get_db() as conn:
+        rows = conn.execute(
+            f'SELECT * FROM delivery_inventory {w} ORDER BY status, condition, serial_no', params
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_inventory_in_stock():
+    """Machines available to assign to a new delivery."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM delivery_inventory WHERE status = 'in_stock' ORDER BY condition, serial_no"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_inventory_by_serial(serial_no):
+    with get_db() as conn:
+        row = conn.execute(
+            'SELECT * FROM delivery_inventory WHERE serial_no = ?', (serial_no,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_inventory(data):
+    """Insert or update a machine by serial number."""
+    with get_db() as conn:
+        existing = conn.execute(
+            'SELECT id, status FROM delivery_inventory WHERE serial_no = ?',
+            (data['serial_no'],)
+        ).fetchone()
+        if existing:
+            conn.execute('''
+                UPDATE delivery_inventory
+                SET model = ?, condition = ?, status = ?, notes = ?
+                WHERE serial_no = ?
+            ''', (
+                data.get('model', ''), data.get('condition', 'new'),
+                data.get('status', existing['status'] or 'in_stock'),
+                data.get('notes', ''), data['serial_no'],
+            ))
+        else:
+            conn.execute('''
+                INSERT INTO delivery_inventory (serial_no, model, condition, status, notes)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                data['serial_no'], data.get('model', ''), data.get('condition', 'new'),
+                data.get('status', 'in_stock'), data.get('notes', ''),
+            ))
+
+
+def set_inventory_status(serial_no, status):
+    if not serial_no:
+        return
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE delivery_inventory SET status = ? WHERE serial_no = ?',
+            (status, serial_no)
+        )
+
+
+def delete_inventory(inv_id):
+    with get_db() as conn:
+        conn.execute('DELETE FROM delivery_inventory WHERE id = ?', (inv_id,))
+
+
+def get_inventory_stats():
+    with get_db() as conn:
+        rows = conn.execute('''
+            SELECT condition, status, COUNT(*) AS c
+            FROM delivery_inventory
+            GROUP BY condition, status
+        ''').fetchall()
+    stats = {'new_in_stock': 0, 'used_in_stock': 0, 'total': 0,
+             'delivered': 0, 'returned': 0}
+    for r in rows:
+        stats['total'] += r['c']
+        if r['status'] == 'in_stock':
+            stats['new_in_stock' if r['condition'] == 'new' else 'used_in_stock'] += r['c']
+        elif r['status'] == 'delivered':
+            stats['delivered'] += r['c']
+        elif r['status'] == 'returned':
+            stats['returned'] += r['c']
+    return stats
+
+
+# ------------------------------------------------------------------ #
+# DELIVERY — JOBS
+# ------------------------------------------------------------------ #
+
+def _generate_delivery_code(conn, year, month):
+    month_str = f'{year}{month:02d}'
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM deliveries WHERE delivery_code LIKE ?",
+        (f'GH-{month_str}-%',)
+    ).fetchone()['c']
+    return f'GH-{month_str}-{count + 1:03d}'
+
+
+def create_delivery(data):
+    from datetime import datetime as _dt
+    now = _dt.now()
+    serial = (data.get('machine_serial') or '').strip()
+    machine = get_inventory_by_serial(serial) if serial else None
+    with get_db() as conn:
+        code = _generate_delivery_code(conn, now.year, now.month)
+        conn.execute('''
+            INSERT INTO deliveries
+                (delivery_code, customer_name, customer_email, customer_phone,
+                 customer_address, machine_serial, machine_model, machine_condition,
+                 status, scheduled_date, assigned_to, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
+        ''', (
+            code, data['customer_name'], data.get('customer_email', ''),
+            data.get('customer_phone', ''), data.get('customer_address', ''),
+            serial, machine['model'] if machine else '',
+            machine['condition'] if machine else '',
+            data.get('scheduled_date', ''), data.get('assigned_to', ''),
+            data.get('notes', ''),
+        ))
+        # Reserve the machine so it can't be double-assigned
+        if serial:
+            conn.execute(
+                "UPDATE delivery_inventory SET status = 'assigned' WHERE serial_no = ?",
+                (serial,)
+            )
+    return code
+
+
+def get_all_deliveries(filters=None):
+    filters = filters or {}
+    where, params = [], []
+    if filters.get('status'):
+        where.append('status = ?'); params.append(filters['status'])
+    if filters.get('date'):
+        where.append('scheduled_date = ?'); params.append(filters['date'])
+    if filters.get('q'):
+        where.append('(customer_name LIKE ? OR delivery_code LIKE ? OR machine_serial LIKE ?)')
+        params += [f"%{filters['q']}%"] * 3
+    w = ('WHERE ' + ' AND '.join(where)) if where else ''
+    with get_db() as conn:
+        rows = conn.execute(
+            f'SELECT * FROM deliveries {w} ORDER BY created_at DESC', params
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_delivery_by_id(delivery_id):
+    with get_db() as conn:
+        row = conn.execute('SELECT * FROM deliveries WHERE id = ?', (delivery_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_delivery_log(delivery_id, fields):
+    """Update only the provided log fields (depart/arrive/setup time, location, status)."""
+    allowed = ('depart_time', 'arrive_time', 'setup_time', 'location', 'status', 'assigned_to')
+    sets, params = [], []
+    for k in allowed:
+        if k in fields and fields[k] is not None:
+            sets.append(f'{k} = ?'); params.append(fields[k])
+    if not sets:
+        return
+    params.append(delivery_id)
+    with get_db() as conn:
+        conn.execute(f"UPDATE deliveries SET {', '.join(sets)} WHERE id = ?", params)
+        # When marked delivered, flip the machine to 'delivered'
+        if fields.get('status') == 'delivered':
+            row = conn.execute('SELECT machine_serial FROM deliveries WHERE id = ?',
+                               (delivery_id,)).fetchone()
+            if row and row['machine_serial']:
+                conn.execute(
+                    "UPDATE delivery_inventory SET status = 'delivered' WHERE serial_no = ?",
+                    (row['machine_serial'],)
+                )
+
+
+def mark_label_sent(delivery_id):
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE deliveries SET label_sent = 1, label_sent_at = ? WHERE id = ?',
+            (ts, delivery_id)
+        )
+
+
+def mark_delivery_returned(delivery_id, reason=''):
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+    with get_db() as conn:
+        row = conn.execute('SELECT machine_serial FROM deliveries WHERE id = ?',
+                           (delivery_id,)).fetchone()
+        conn.execute('''
+            UPDATE deliveries
+            SET status = 'returned', returned_at = ?, return_reason = ?
+            WHERE id = ?
+        ''', (ts, reason, delivery_id))
+        if row and row['machine_serial']:
+            conn.execute(
+                "UPDATE delivery_inventory SET status = 'returned' WHERE serial_no = ?",
+                (row['machine_serial'],)
+            )
+
+
+def delete_delivery(delivery_id):
+    """Delete a delivery and release its machine back to stock if not delivered."""
+    with get_db() as conn:
+        row = conn.execute('SELECT machine_serial, status FROM deliveries WHERE id = ?',
+                           (delivery_id,)).fetchone()
+        if row and row['machine_serial'] and row['status'] in ('scheduled', 'en_route'):
+            conn.execute(
+                "UPDATE delivery_inventory SET status = 'in_stock' WHERE serial_no = ?",
+                (row['machine_serial'],)
+            )
+        conn.execute('DELETE FROM deliveries WHERE id = ?', (delivery_id,))
+
+
+def get_delivery_stats():
+    with get_db() as conn:
+        rows = conn.execute(
+            'SELECT status, COUNT(*) AS c FROM deliveries GROUP BY status'
+        ).fetchall()
+        by_status = {r['status']: r['c'] for r in rows}
+        pending_label = conn.execute(
+            "SELECT COUNT(*) AS c FROM deliveries WHERE label_sent = 0 AND status != 'returned'"
+        ).fetchone()['c']
+    return {
+        'total':     sum(by_status.values()),
+        'scheduled': by_status.get('scheduled', 0),
+        'en_route':  by_status.get('en_route', 0),
+        'delivered': by_status.get('delivered', 0),
+        'returned':  by_status.get('returned', 0),
+        'pending_label': pending_label,
+    }

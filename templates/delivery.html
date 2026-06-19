@@ -1,0 +1,384 @@
+{% extends 'base.html' %}
+{% block title %}Giao Hàng{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-end">
+  <div>
+    <h4><i class="bi bi-truck me-2"></i>Đơn Giao Hàng</h4>
+    <div class="page-sub">Lên lịch giao máy, gửi phiếu cho khách, ghi nhận vị trí &amp; giờ giao/setup, theo dõi thu hồi.</div>
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createModal">
+    <i class="bi bi-plus-lg me-1"></i> Tạo Đơn Giao
+  </button>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  {% set cards = [
+    ('Tổng đơn', stats.total, '#0f172a', 'bi-clipboard-data'),
+    ('Đã lên lịch', stats.scheduled, '#1d4ed8', 'bi-calendar-check'),
+    ('Đang đi giao', stats.en_route, '#c2410c', 'bi-truck'),
+    ('Đã giao & setup', stats.delivered, '#15803d', 'bi-check2-circle'),
+    ('Chưa gửi phiếu', stats.pending_label, '#a16207', 'bi-envelope'),
+    ('Đã thu hồi', stats.returned, '#7e22ce', 'bi-arrow-counterclockwise'),
+  ] %}
+  {% for label, val, color, icon in cards %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body py-3 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1" style="color:{{ color }}">
+          <i class="bi {{ icon }}"></i>
+          <small style="font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8">{{ label }}</small>
+        </div>
+        <div style="font-size:1.5rem;font-weight:800;color:{{ color }}">{{ val }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filter -->
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label">Trạng thái</label>
+        <select name="status" class="form-select form-select-sm" style="min-width:160px">
+          <option value="">— Tất cả —</option>
+          {% for k, v in status_labels.items() %}
+          <option value="{{ k }}" {{ 'selected' if filters.status == k }}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Ngày giao</label>
+        <input type="date" name="date" value="{{ filters.date or '' }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Tìm kiếm</label>
+        <input type="text" name="q" value="{{ filters.q or '' }}" placeholder="Khách / mã đơn / serial"
+               class="form-control form-control-sm" style="min-width:200px">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Lọc</button>
+        <a href="{{ url_for('delivery') }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Deliveries table -->
+<div class="card">
+  <div class="card-header py-3">Danh Sách Đơn ({{ deliveries|length }})</div>
+  {% if deliveries %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.82rem">
+      <thead>
+        <tr>
+          <th>Mã / Khách hàng</th>
+          <th>Máy</th>
+          <th>Lịch giao</th>
+          <th>Nhật ký vị trí &amp; giờ</th>
+          <th>Phiếu</th>
+          <th>Trạng thái</th>
+          <th style="min-width:140px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in deliveries %}
+        {% set st_style = {
+            'scheduled': ('#eff6ff', '#1d4ed8'),
+            'en_route':  ('#fff7ed', '#c2410c'),
+            'delivered': ('#f0fdf4', '#15803d'),
+            'returned':  ('#faf5ff', '#7e22ce'),
+        }[d.status] %}
+        <tr>
+          <td>
+            <code>{{ d.delivery_code }}</code><br>
+            <strong>{{ d.customer_name }}</strong>
+            {% if d.customer_email %}<br><small style="color:#94a3b8"><i class="bi bi-envelope"></i> {{ d.customer_email }}</small>{% endif %}
+            {% if d.customer_phone %}<br><small style="color:#94a3b8"><i class="bi bi-telephone"></i> {{ d.customer_phone }}</small>{% endif %}
+            {% if d.customer_address %}<br><small style="color:#94a3b8"><i class="bi bi-geo-alt"></i> {{ d.customer_address }}</small>{% endif %}
+          </td>
+          <td>
+            {% if d.machine_serial %}
+              <strong>{{ d.machine_model or '—' }}</strong><br>
+              <code>{{ d.machine_serial }}</code>
+              {% if d.machine_condition == 'used' %}
+                <span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600">Máy cũ</span>
+              {% elif d.machine_condition == 'new' %}
+                <span class="badge" style="background:#dbeafe;color:#1e40af;font-weight:600">Máy mới</span>
+              {% endif %}
+            {% else %}
+              <span style="color:#cbd5e1">Chưa gán máy</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap;color:#475569">
+            {{ d.scheduled_date or '—' }}
+            {% if d.assigned_to %}<br><small style="color:#94a3b8"><i class="bi bi-person"></i> {{ d.assigned_to }}</small>{% endif %}
+          </td>
+          <td style="font-size:.78rem;color:#475569;min-width:170px">
+            <div><i class="bi bi-box-arrow-right" style="color:#c2410c"></i> Đi: <strong>{{ d.depart_time or '—' }}</strong></div>
+            <div><i class="bi bi-box-arrow-in-down" style="color:#1d4ed8"></i> Đến: <strong>{{ d.arrive_time or '—' }}</strong></div>
+            <div><i class="bi bi-tools" style="color:#15803d"></i> Setup: <strong>{{ d.setup_time or '—' }}</strong></div>
+            {% if d.location %}<div style="color:#94a3b8"><i class="bi bi-geo-alt-fill"></i> {{ d.location }}</div>{% endif %}
+          </td>
+          <td>
+            {% if d.label_sent %}
+              <span class="badge badge-ok" title="{{ d.label_sent_at }}"><i class="bi bi-check2"></i> Đã gửi</span>
+            {% else %}
+              <button class="btn btn-outline-primary btn-sm send-label-btn" data-id="{{ d.id }}"
+                      {{ 'disabled' if not d.customer_email }}>
+                <i class="bi bi-envelope-arrow-up"></i> Gửi
+              </button>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge" style="background:{{ st_style[0] }};color:{{ st_style[1] }};font-weight:600">
+              {{ status_labels[d.status] }}
+            </span>
+            {% if d.status == 'returned' and d.returned_at %}
+              <br><small style="color:#94a3b8">{{ d.returned_at }}</small>
+              {% if d.return_reason %}<br><small style="color:#94a3b8">{{ d.return_reason }}</small>{% endif %}
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-outline-secondary btn-sm log-btn"
+                    data-d='{{ d | tojson }}' title="Nhật ký giao hàng">
+              <i class="bi bi-geo-alt"></i>
+            </button>
+            {% if d.status != 'returned' %}
+            <button class="btn btn-outline-warning btn-sm return-btn"
+                    data-id="{{ d.id }}" data-code="{{ d.delivery_code }}" title="Thu hồi máy">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+            {% endif %}
+            <form method="POST" action="{{ url_for('delivery_delete', delivery_id=d.id) }}"
+                  style="display:inline" onsubmit="return confirm('Xóa đơn {{ d.delivery_code }}?')">
+              <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center" style="color:#94a3b8">Chưa có đơn giao nào. Bấm “Tạo Đơn Giao” để bắt đầu.</div>
+  {% endif %}
+</div>
+
+<!-- ── Create modal ───────────────────────────────────────────── -->
+<div class="modal fade" id="createModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('delivery_create') }}">
+        <div class="modal-header">
+          <h5 class="modal-title" style="font-size:1rem;font-weight:700">Tạo Đơn Giao Hàng</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Tên khách hàng *</label>
+              <input type="text" name="customer_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email khách (để gửi phiếu)</label>
+              <input type="email" name="customer_email" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Điện thoại</label>
+              <input type="text" name="customer_phone" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Ngày giao dự kiến</label>
+              <input type="date" name="scheduled_date" value="{{ today }}" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Địa chỉ giao</label>
+              <input type="text" name="customer_address" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Máy trong kho</label>
+              <select name="machine_serial" class="form-select">
+                <option value="">— Gán sau —</option>
+                {% for m in in_stock %}
+                <option value="{{ m.serial_no }}">
+                  {{ m.serial_no }} · {{ m.model or 'N/A' }} ({{ 'mới' if m.condition == 'new' else 'cũ' }})
+                </option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Chỉ máy đang <strong>in_stock</strong>. Máy sẽ được giữ chỗ cho đơn này.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Nhân viên giao</label>
+              <input type="text" name="assigned_to" value="{{ current_user }}" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Ghi chú</label>
+              <input type="text" name="notes" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary btn-sm">Tạo đơn</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Log modal ──────────────────────────────────────────────── -->
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" id="logForm">
+        <div class="modal-header">
+          <h5 class="modal-title" style="font-size:1rem;font-weight:700">
+            Nhật Ký Giao Hàng — <span id="logCode"></span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Vị trí / Địa điểm (GPS hoặc địa chỉ thực tế)</label>
+              <input type="text" name="location" id="logLocation" class="form-control"
+                     placeholder="VD: 10.7769, 106.7009 hoặc 123 Lê Lợi, Q1">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Giờ đi giao</label>
+              <div class="input-group">
+                <input type="time" name="depart_time" id="logDepart" class="form-control">
+                <button type="button" class="btn btn-outline-secondary btn-sm now-btn" data-target="logDepart">Now</button>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Giờ đến</label>
+              <div class="input-group">
+                <input type="time" name="arrive_time" id="logArrive" class="form-control">
+                <button type="button" class="btn btn-outline-secondary btn-sm now-btn" data-target="logArrive">Now</button>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Giờ setup xong</label>
+              <div class="input-group">
+                <input type="time" name="setup_time" id="logSetup" class="form-control">
+                <button type="button" class="btn btn-outline-secondary btn-sm now-btn" data-target="logSetup">Now</button>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Cập nhật trạng thái</label>
+              <select name="status" id="logStatus" class="form-select">
+                {% for k, v in status_labels.items() %}
+                {% if k != 'returned' %}<option value="{{ k }}">{{ v }}</option>{% endif %}
+                {% endfor %}
+              </select>
+              <div class="form-text">Chọn “Đã đi giao” khi xuất phát, “Đã giao &amp; setup” khi hoàn tất lắp đặt.</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary btn-sm">Lưu nhật ký</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Return modal ───────────────────────────────────────────── -->
+<div class="modal fade" id="returnModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" id="returnForm">
+        <div class="modal-header">
+          <h5 class="modal-title" style="font-size:1rem;font-weight:700">
+            Thu Hồi Máy — <span id="returnCode"></span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p style="color:#64748b;font-size:.85rem">
+            Máy của đơn này sẽ được đánh dấu <strong>đã thu hồi</strong> và cập nhật về kho (trạng thái returned).
+          </p>
+          <label class="form-label">Lý do thu hồi</label>
+          <input type="text" name="return_reason" class="form-control"
+                 placeholder="VD: Khách đổi máy / hết hợp đồng / lỗi thiết bị">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-warning btn-sm">Xác nhận thu hồi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Log modal: populate from row data ──────────────────────────
+const logModal = new bootstrap.Modal(document.getElementById('logModal'));
+document.querySelectorAll('.log-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const d = JSON.parse(this.dataset.d);
+    document.getElementById('logCode').textContent    = d.delivery_code;
+    document.getElementById('logForm').action         = '/delivery/' + d.id + '/log';
+    document.getElementById('logLocation').value      = d.location || '';
+    document.getElementById('logDepart').value        = d.depart_time || '';
+    document.getElementById('logArrive').value        = d.arrive_time || '';
+    document.getElementById('logSetup').value         = d.setup_time || '';
+    document.getElementById('logStatus').value        = (d.status === 'returned') ? 'delivered' : d.status;
+    logModal.show();
+  });
+});
+
+// "Now" quick-stamp buttons
+document.querySelectorAll('.now-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    document.getElementById(this.dataset.target).value = hh + ':' + mm;
+  });
+});
+
+// ── Return modal ───────────────────────────────────────────────
+const returnModal = new bootstrap.Modal(document.getElementById('returnModal'));
+document.querySelectorAll('.return-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.getElementById('returnCode').textContent = this.dataset.code;
+    document.getElementById('returnForm').action      = '/delivery/' + this.dataset.id + '/return';
+    returnModal.show();
+  });
+});
+
+// ── Send email label (AJAX) ────────────────────────────────────
+document.querySelectorAll('.send-label-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const b = this;
+    b.disabled = true;
+    b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('/delivery/' + b.dataset.id + '/send-label', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) {
+          b.outerHTML = '<span class="badge badge-ok"><i class="bi bi-check2"></i> Đã gửi</span>';
+        } else {
+          alert('Không gửi được phiếu: ' + (res.error || 'lỗi không xác định'));
+          b.disabled = false;
+          b.innerHTML = '<i class="bi bi-envelope-arrow-up"></i> Gửi';
+        }
+      })
+      .catch(function (e) {
+        alert('Lỗi: ' + e);
+        b.disabled = false;
+        b.innerHTML = '<i class="bi bi-envelope-arrow-up"></i> Gửi';
+      });
+  });
+});
+</script>
+{% endblock %}

@@ -196,6 +196,21 @@ def hr_required(f):
     return decorated
 
 
+def delivery_required(f):
+    """Delivery team page access — admin, hr, and delivery roles."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('user_id'):
+            return redirect(url_for('login', next=request.path))
+        role = session.get('role')
+        if role == 'employee':
+            return redirect(url_for('portal'))
+        if role not in ('hr', 'admin', 'delivery'):
+            return redirect(url_for('no_access'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 def _ensure_default_admin():
     """Create a default admin account on first run if no users exist."""
     if db.count_users() == 0:
@@ -290,6 +305,9 @@ def login():
             # Employee role → always go to personal portal
             if user['role'] == 'employee':
                 return redirect(url_for('portal'))
+            # Delivery role → delivery dashboard
+            if user['role'] == 'delivery':
+                return redirect(url_for('delivery'))
             raw_next = request.args.get('next', '')
             # Only allow relative redirects (no scheme/host) to prevent open redirect
             next_url = raw_next if (raw_next and raw_next.startswith('/') and not raw_next.startswith('//')) else url_for('index')
@@ -1725,6 +1743,223 @@ def system_update():
 
     return jsonify({'ok': True, 'steps': steps,
                     'message': 'Cập nhật thành công! Server đang khởi động lại…'})
+
+
+# ------------------------------------------------------------------ #
+# DELIVERY DEPARTMENT — INVENTORY, DELIVERIES, EMAIL LABELS, RETURNS
+# ------------------------------------------------------------------ #
+
+_DELIVERY_STATUS_LABEL = {
+    'scheduled': 'Đã lên lịch',
+    'en_route':  'Đang đi giao',
+    'delivered': 'Đã giao & setup',
+    'returned':  'Đã thu hồi máy',
+}
+
+
+def _delivery_label_html(d):
+    """Build the HTML 'shipping label' emailed to the customer."""
+    cond_txt = {'new': 'Máy mới', 'used': 'Máy đã qua sử dụng'}.get(d.get('machine_condition'), '')
+    sched    = d.get('scheduled_date') or 'Sẽ thông báo'
+    return f'''
+<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+  <div style="background:#0f172a;border-radius:14px;padding:26px 30px;margin-bottom:22px">
+    <div style="color:#93c5fd;font-size:.72rem;letter-spacing:1px;text-transform:uppercase">Rich Payment Solutions</div>
+    <h1 style="color:#fff;font-size:1.35rem;margin:6px 0 0;font-weight:800">Phiếu Giao Máy</h1>
+    <div style="color:#cbd5e1;font-size:.9rem;margin-top:6px">Mã đơn: <strong style="color:#fff">{d['delivery_code']}</strong></div>
+  </div>
+  <p style="color:#334155;font-size:.95rem">Xin chào <strong>{d['customer_name']}</strong>,</p>
+  <p style="color:#475569;font-size:.9rem;line-height:1.6">
+    Đơn giao máy của quý khách đã được tạo. Vui lòng kiểm tra thông tin bên dưới khi nhận máy.
+  </p>
+  <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:.88rem">
+    <tr><td style="padding:9px 0;color:#94a3b8;width:42%">Khách hàng</td><td style="padding:9px 0;color:#0f172a;font-weight:600">{d['customer_name']}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Địa chỉ giao</td><td style="padding:9px 0;color:#0f172a">{d.get('customer_address') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Điện thoại</td><td style="padding:9px 0;color:#0f172a">{d.get('customer_phone') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Thiết bị</td><td style="padding:9px 0;color:#0f172a;font-weight:600">{d.get('machine_model') or '—'}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Serial máy</td><td style="padding:9px 0;color:#0f172a"><code>{d.get('machine_serial') or '—'}</code> <span style="color:#64748b">{cond_txt}</span></td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Ngày giao dự kiến</td><td style="padding:9px 0;color:#0f172a;font-weight:600">{sched}</td></tr>
+    <tr><td style="padding:9px 0;color:#94a3b8">Nhân viên giao</td><td style="padding:9px 0;color:#0f172a">{d.get('assigned_to') or '—'}</td></tr>
+  </table>
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin:18px 0">
+    <div style="color:#1e40af;font-size:.82rem;line-height:1.6">
+      Nhân viên kỹ thuật sẽ liên hệ và đến lắp đặt, cài đặt máy tận nơi. Vui lòng giữ lại phiếu này để đối chiếu khi cần thu hồi/đổi trả máy.
+    </div>
+  </div>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p style="color:#cbd5e1;font-size:.75rem;text-align:center">Rich Payment Solutions · Delivery Team</p>
+</div>'''
+
+
+@app.route('/delivery')
+@delivery_required
+def delivery():
+    filters = {k: v for k, v in {
+        'status': request.args.get('status'),
+        'date':   request.args.get('date'),
+        'q':      request.args.get('q'),
+    }.items() if v}
+    deliveries = db.get_all_deliveries(filters)
+    stats      = db.get_delivery_stats()
+    in_stock   = db.get_inventory_in_stock()
+    today      = _dt.now().strftime('%Y-%m-%d')
+    now_hm     = _dt.now().strftime('%H:%M')
+    return render_template('delivery.html',
+                           deliveries=deliveries,
+                           stats=stats,
+                           in_stock=in_stock,
+                           filters=filters,
+                           today=today,
+                           now_hm=now_hm,
+                           status_labels=_DELIVERY_STATUS_LABEL,
+                           current_user=session.get('display_name', ''))
+
+
+@app.route('/delivery/create', methods=['POST'])
+@delivery_required
+def delivery_create():
+    customer_name = request.form.get('customer_name', '').strip()
+    if not customer_name:
+        flash('Tên khách hàng là bắt buộc.', 'error')
+        return redirect(url_for('delivery'))
+
+    serial = request.form.get('machine_serial', '').strip()
+    if serial:
+        machine = db.get_inventory_by_serial(serial)
+        if not machine:
+            flash('Máy không tồn tại trong kho.', 'error')
+            return redirect(url_for('delivery'))
+        if machine['status'] != 'in_stock':
+            flash(f'Máy {serial} không còn trong kho (trạng thái: {machine["status"]}).', 'error')
+            return redirect(url_for('delivery'))
+
+    code = db.create_delivery({
+        'customer_name':    customer_name,
+        'customer_email':   request.form.get('customer_email', '').strip(),
+        'customer_phone':   request.form.get('customer_phone', '').strip(),
+        'customer_address': request.form.get('customer_address', '').strip(),
+        'machine_serial':   serial,
+        'scheduled_date':   request.form.get('scheduled_date', '').strip(),
+        'assigned_to':      request.form.get('assigned_to', '').strip() or session.get('display_name', ''),
+        'notes':            request.form.get('notes', '').strip(),
+    })
+    db.log_audit(session['user_id'], session['username'], 'DELIVERY_CREATED',
+                 f'{code} → {customer_name}', request.remote_addr)
+    flash(f'✅ Đã tạo đơn giao {code} cho {customer_name}.', 'success')
+    return redirect(url_for('delivery'))
+
+
+@app.route('/delivery/<int:delivery_id>/log', methods=['POST'])
+@delivery_required
+def delivery_log(delivery_id):
+    """Log departure/arrival/setup times, location, and status."""
+    rec = db.get_delivery_by_id(delivery_id)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Đơn không tồn tại'}), 404
+    fields = {}
+    for k in ('depart_time', 'arrive_time', 'setup_time', 'location', 'status', 'assigned_to'):
+        v = request.form.get(k)
+        if v is not None and v.strip() != '':
+            fields[k] = v.strip()
+    db.update_delivery_log(delivery_id, fields)
+    db.log_audit(session['user_id'], session['username'], 'DELIVERY_LOG',
+                 f'{rec["delivery_code"]} | ' + ', '.join(f'{k}={v}' for k, v in fields.items()),
+                 request.remote_addr)
+    if request.form.get('ajax'):
+        return jsonify({'ok': True})
+    flash(f'✅ Đã cập nhật nhật ký giao hàng cho {rec["delivery_code"]}.', 'success')
+    return redirect(url_for('delivery'))
+
+
+@app.route('/delivery/<int:delivery_id>/send-label', methods=['POST'])
+@delivery_required
+def delivery_send_label(delivery_id):
+    rec = db.get_delivery_by_id(delivery_id)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Đơn không tồn tại'}), 404
+    if not rec.get('customer_email'):
+        return jsonify({'ok': False, 'error': 'Đơn này chưa có email khách hàng.'})
+    try:
+        _send_email(rec['customer_email'],
+                    f'Phiếu giao máy {rec["delivery_code"]} — Rich Payment Solutions',
+                    _delivery_label_html(rec))
+        db.mark_label_sent(delivery_id)
+        db.log_audit(session['user_id'], session['username'], 'DELIVERY_LABEL_SENT',
+                     f'{rec["delivery_code"]} → {rec["customer_email"]}', request.remote_addr)
+        return jsonify({'ok': True, 'message': f'Đã gửi phiếu giao tới {rec["customer_email"]}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/delivery/<int:delivery_id>/return', methods=['POST'])
+@delivery_required
+def delivery_return(delivery_id):
+    rec = db.get_delivery_by_id(delivery_id)
+    if not rec:
+        flash('Đơn không tồn tại.', 'error')
+        return redirect(url_for('delivery'))
+    reason = request.form.get('return_reason', '').strip()
+    db.mark_delivery_returned(delivery_id, reason)
+    db.log_audit(session['user_id'], session['username'], 'DELIVERY_RETURNED',
+                 f'{rec["delivery_code"]} | {reason}', request.remote_addr)
+    flash(f'✅ Đã ghi nhận thu hồi máy của đơn {rec["delivery_code"]}.', 'success')
+    return redirect(url_for('delivery'))
+
+
+@app.route('/delivery/<int:delivery_id>/delete', methods=['POST'])
+@delivery_required
+def delivery_delete(delivery_id):
+    rec = db.get_delivery_by_id(delivery_id)
+    db.delete_delivery(delivery_id)
+    if rec:
+        db.log_audit(session['user_id'], session['username'], 'DELIVERY_DELETED',
+                     rec['delivery_code'], request.remote_addr)
+    flash('✅ Đã xóa đơn giao.', 'success')
+    return redirect(url_for('delivery'))
+
+
+# ── Inventory ─────────────────────────────────────────────────────────
+
+@app.route('/delivery/inventory')
+@delivery_required
+def delivery_inventory():
+    filters = {k: v for k, v in {
+        'condition': request.args.get('condition'),
+        'status':    request.args.get('status'),
+        'q':         request.args.get('q'),
+    }.items() if v}
+    items = db.get_all_inventory(filters)
+    stats = db.get_inventory_stats()
+    return render_template('delivery_inventory.html',
+                           items=items, stats=stats, filters=filters)
+
+
+@app.route('/delivery/inventory/save', methods=['POST'])
+@delivery_required
+def delivery_inventory_save():
+    serial = request.form.get('serial_no', '').strip()
+    if not serial:
+        flash('Serial máy là bắt buộc.', 'error')
+        return redirect(url_for('delivery_inventory'))
+    db.save_inventory({
+        'serial_no': serial,
+        'model':     request.form.get('model', '').strip(),
+        'condition': request.form.get('condition', 'new'),
+        'status':    request.form.get('status', 'in_stock'),
+        'notes':     request.form.get('notes', '').strip(),
+    })
+    db.log_audit(session['user_id'], session['username'], 'INVENTORY_SAVED',
+                 f'{serial}', request.remote_addr)
+    flash(f'✅ Đã lưu máy {serial}.', 'success')
+    return redirect(url_for('delivery_inventory'))
+
+
+@app.route('/delivery/inventory/delete/<int:inv_id>', methods=['POST'])
+@delivery_required
+def delivery_inventory_delete(inv_id):
+    db.delete_inventory(inv_id)
+    flash('✅ Đã xóa máy khỏi kho.', 'success')
+    return redirect(url_for('delivery_inventory'))
 
 
 # ------------------------------------------------------------------ #

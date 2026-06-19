@@ -1,0 +1,214 @@
+{% extends 'base.html' %}
+{% block title %}Kho Máy{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-end">
+  <div>
+    <h4><i class="bi bi-box-seam me-2"></i>Kho Máy</h4>
+    <div class="page-sub">Quản lý tồn kho thiết bị — máy mới &amp; máy đã qua sử dụng, trạng thái giao/thu hồi.</div>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="openAddInv()">
+    <i class="bi bi-plus-lg me-1"></i> Thêm Máy
+  </button>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  {% set cards = [
+    ('Máy mới (kho)', stats.new_in_stock, '#1d4ed8', 'bi-box'),
+    ('Máy cũ (kho)', stats.used_in_stock, '#7e22ce', 'bi-box2'),
+    ('Đang ở khách', stats.delivered, '#15803d', 'bi-truck'),
+    ('Đã thu hồi', stats.returned, '#c2410c', 'bi-arrow-counterclockwise'),
+    ('Tổng máy', stats.total, '#0f172a', 'bi-stack'),
+  ] %}
+  {% for label, val, color, icon in cards %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body py-3 px-3">
+        <div class="d-flex align-items-center gap-2 mb-1" style="color:{{ color }}">
+          <i class="bi {{ icon }}"></i>
+          <small style="font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8">{{ label }}</small>
+        </div>
+        <div style="font-size:1.5rem;font-weight:800;color:{{ color }}">{{ val }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filter -->
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label">Tình trạng</label>
+        <select name="condition" class="form-select form-select-sm" style="min-width:130px">
+          <option value="">— Tất cả —</option>
+          <option value="new"  {{ 'selected' if filters.condition == 'new' }}>Máy mới</option>
+          <option value="used" {{ 'selected' if filters.condition == 'used' }}>Máy cũ</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Trạng thái</label>
+        <select name="status" class="form-select form-select-sm" style="min-width:140px">
+          <option value="">— Tất cả —</option>
+          <option value="in_stock"  {{ 'selected' if filters.status == 'in_stock' }}>Trong kho</option>
+          <option value="assigned"  {{ 'selected' if filters.status == 'assigned' }}>Đã gán đơn</option>
+          <option value="delivered" {{ 'selected' if filters.status == 'delivered' }}>Đang ở khách</option>
+          <option value="returned"  {{ 'selected' if filters.status == 'returned' }}>Đã thu hồi</option>
+          <option value="retired"   {{ 'selected' if filters.status == 'retired' }}>Ngừng dùng</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Tìm kiếm</label>
+        <input type="text" name="q" value="{{ filters.q or '' }}" placeholder="Serial / model"
+               class="form-control form-control-sm" style="min-width:200px">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Lọc</button>
+        <a href="{{ url_for('delivery_inventory') }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Inventory table -->
+<div class="card">
+  <div class="card-header py-3">Danh Sách Máy ({{ items|length }})</div>
+  {% if items %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:.83rem">
+      <thead>
+        <tr>
+          <th>Serial</th>
+          <th>Model</th>
+          <th>Tình trạng</th>
+          <th>Trạng thái</th>
+          <th>Ghi chú</th>
+          <th>Nhập kho</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set st_map = {
+          'in_stock':  ('#f0fdf4', '#15803d', 'Trong kho'),
+          'assigned':  ('#eff6ff', '#1d4ed8', 'Đã gán đơn'),
+          'delivered': ('#fff7ed', '#c2410c', 'Đang ở khách'),
+          'returned':  ('#faf5ff', '#7e22ce', 'Đã thu hồi'),
+          'retired':   ('#f1f5f9', '#64748b', 'Ngừng dùng'),
+        } %}
+        {% for it in items %}
+        {% set st = st_map.get(it.status, ('#f1f5f9', '#64748b', it.status)) %}
+        <tr>
+          <td><code>{{ it.serial_no }}</code></td>
+          <td><strong>{{ it.model or '—' }}</strong></td>
+          <td>
+            {% if it.condition == 'used' %}
+              <span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600">Máy cũ</span>
+            {% else %}
+              <span class="badge" style="background:#dbeafe;color:#1e40af;font-weight:600">Máy mới</span>
+            {% endif %}
+          </td>
+          <td><span class="badge" style="background:{{ st[0] }};color:{{ st[1] }};font-weight:600">{{ st[2] }}</span></td>
+          <td style="color:#64748b">{{ it.notes }}</td>
+          <td style="color:#94a3b8;white-space:nowrap">{{ it.created_at }}</td>
+          <td>
+            <button class="btn btn-outline-primary btn-sm edit-inv-btn"
+                    data-it='{{ it | tojson }}'><i class="bi bi-pencil"></i></button>
+            <form method="POST" action="{{ url_for('delivery_inventory_delete', inv_id=it.id) }}"
+                  style="display:inline" onsubmit="return confirm('Xóa máy {{ it.serial_no }}?')">
+              <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center" style="color:#94a3b8">Kho trống. Bấm “Thêm Máy” để nhập thiết bị.</div>
+  {% endif %}
+</div>
+
+<!-- ── Add/Edit modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="invModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('delivery_inventory_save') }}">
+        <div class="modal-header">
+          <h5 class="modal-title" id="invTitle" style="font-size:1rem;font-weight:700">Thêm Máy</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Serial máy *</label>
+              <input type="text" name="serial_no" id="invSerial" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Model</label>
+              <input type="text" name="model" id="invModel" class="form-control" placeholder="VD: PAX A920">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Tình trạng</label>
+              <select name="condition" id="invCondition" class="form-select">
+                <option value="new">Máy mới</option>
+                <option value="used">Máy đã qua sử dụng</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Trạng thái</label>
+              <select name="status" id="invStatus" class="form-select">
+                <option value="in_stock">Trong kho</option>
+                <option value="assigned">Đã gán đơn</option>
+                <option value="delivered">Đang ở khách</option>
+                <option value="returned">Đã thu hồi</option>
+                <option value="retired">Ngừng dùng</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Ghi chú</label>
+              <input type="text" name="notes" id="invNotes" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+          <button type="submit" class="btn btn-primary btn-sm">Lưu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const invModal = new bootstrap.Modal(document.getElementById('invModal'));
+
+function openAddInv() {
+  document.getElementById('invTitle').textContent = 'Thêm Máy';
+  document.getElementById('invSerial').value    = '';
+  document.getElementById('invSerial').readOnly  = false;
+  document.getElementById('invModel').value     = '';
+  document.getElementById('invCondition').value = 'new';
+  document.getElementById('invStatus').value    = 'in_stock';
+  document.getElementById('invNotes').value     = '';
+  invModal.show();
+}
+
+document.querySelectorAll('.edit-inv-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const it = JSON.parse(this.dataset.it);
+    document.getElementById('invTitle').textContent = 'Sửa Máy ' + it.serial_no;
+    document.getElementById('invSerial').value    = it.serial_no;
+    document.getElementById('invSerial').readOnly  = true;  // serial is the key
+    document.getElementById('invModel').value     = it.model || '';
+    document.getElementById('invCondition').value = it.condition || 'new';
+    document.getElementById('invStatus').value    = it.status || 'in_stock';
+    document.getElementById('invNotes').value     = it.notes || '';
+    invModal.show();
+  });
+});
+</script>
+{% endblock %}

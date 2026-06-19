@@ -27,7 +27,7 @@
               <td><code>{{ u.username }}</code></td>
               <td><strong>{{ u.display_name or '—' }}</strong></td>
               <td>
-                <span class="badge {% if u.role == 'admin' %}bg-danger{% elif u.role == 'hr' %}bg-primary{% elif u.role == 'employee' %}bg-success{% else %}bg-secondary{% endif %}">
+                <span class="badge {% if u.role == 'admin' %}bg-danger{% elif u.role == 'hr' %}bg-primary{% elif u.role == 'employee' %}bg-success{% elif u.role == 'delivery' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
                   {{ u.role }}
                 </span>
               </td>
@@ -156,6 +156,7 @@
                 <option value="hr">hr — full attendance access</option>
                 <option value="admin">admin — toàn quyền</option>
                 <option value="employee">employee — cá nhân</option>
+                <option value="delivery">delivery — team giao hàng</option>
               </select>
             </div>
             <div class="col-12" id="empAssignRow" style="display:none">
