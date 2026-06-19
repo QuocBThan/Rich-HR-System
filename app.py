@@ -1867,6 +1867,13 @@ def delivery():
                            current_user=session.get('display_name', ''))
 
 
+def _send_delivery_label(rec):
+    """Send the delivery label email; raises on SMTP failure."""
+    _send_email(rec['customer_email'],
+                f'Phiếu giao máy {rec["delivery_code"]} — Rich Payment Solutions',
+                _delivery_label_html(rec))
+
+
 @app.route('/delivery/create', methods=['POST'])
 @delivery_required
 def delivery_create():
@@ -1897,7 +1904,24 @@ def delivery_create():
     })
     db.log_audit(session['user_id'], session['username'], 'DELIVERY_CREATED',
                  f'{code} → {customer_name}', request.remote_addr)
-    flash(f'✅ Đã tạo đơn giao {code} cho {customer_name}.', 'success')
+
+    # Auto-send the delivery label if requested and email present
+    msg = f'✅ Đã tạo đơn giao {code} cho {customer_name}.'
+    if request.form.get('send_label') == '1':
+        rows = db.get_all_deliveries({'q': code})
+        rec  = rows[0] if rows else None
+        if rec and rec.get('customer_email'):
+            try:
+                _send_delivery_label(rec)
+                db.mark_label_sent(rec['id'])
+                db.log_audit(session['user_id'], session['username'], 'DELIVERY_LABEL_SENT',
+                             f'{code} → {rec["customer_email"]}', request.remote_addr)
+                msg += f' Đã gửi phiếu giao tới {rec["customer_email"]}.'
+            except Exception as e:
+                msg += f' ⚠️ Nhưng KHÔNG gửi được phiếu: {e}'
+        else:
+            msg += ' ⚠️ Chưa gửi phiếu vì thiếu email khách.'
+    flash(msg, 'success')
     return redirect(url_for('delivery'))
 
 
@@ -1932,9 +1956,7 @@ def delivery_send_label(delivery_id):
     if not rec.get('customer_email'):
         return jsonify({'ok': False, 'error': 'Đơn này chưa có email khách hàng.'})
     try:
-        _send_email(rec['customer_email'],
-                    f'Phiếu giao máy {rec["delivery_code"]} — Rich Payment Solutions',
-                    _delivery_label_html(rec))
+        _send_delivery_label(rec)
         db.mark_label_sent(delivery_id)
         db.log_audit(session['user_id'], session['username'], 'DELIVERY_LABEL_SENT',
                      f'{rec["delivery_code"]} → {rec["customer_email"]}', request.remote_addr)

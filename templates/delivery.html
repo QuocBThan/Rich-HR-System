@@ -219,11 +219,19 @@
               <label class="form-label">Ghi chú</label>
               <input type="text" name="notes" class="form-control">
             </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="send_label" value="1" id="dlvSendLabelChk" checked>
+                <label class="form-check-label" for="dlvSendLabelChk">
+                  <strong>Tự động gửi phiếu giao (delivery label) cho khách qua email ngay khi tạo</strong>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
-          <button type="submit" class="btn btn-primary btn-sm">Tạo đơn</button>
+          <button type="submit" class="btn btn-primary btn-sm">Tạo &amp; gửi phiếu</button>
         </div>
       </form>
     </div>
