@@ -1309,11 +1309,21 @@ def update_user(user_id):
     department   = request.form.get('department', '').strip()
     email        = request.form.get('email', '').strip()
     new_password = request.form.get('new_password', '').strip()
+    allowed_roles = ('admin', 'hr', 'employee', 'viewer', 'delivery')
+    new_role     = request.form.get('role', '').strip()
+    if new_role not in allowed_roles:
+        new_role = None
     with db.get_db() as conn:
-        conn.execute(
-            'UPDATE users SET display_name=?, department=?, email=? WHERE id=?',
-            (display_name, department, email, user_id)
-        )
+        if new_role:
+            conn.execute(
+                'UPDATE users SET display_name=?, department=?, email=?, role=? WHERE id=?',
+                (display_name, department, email, new_role, user_id)
+            )
+        else:
+            conn.execute(
+                'UPDATE users SET display_name=?, department=?, email=? WHERE id=?',
+                (display_name, department, email, user_id)
+            )
         if new_password:
             if len(new_password) < 8:
                 flash('Mật khẩu mới phải ít nhất 8 ký tự.', 'error')
