@@ -1312,16 +1312,18 @@ def update_user(user_id):
     display_name = request.form.get('display_name', '').strip()
     department   = request.form.get('department', '').strip()
     email        = request.form.get('email', '').strip()
+    role         = request.form.get('role', '').strip()
     new_password = request.form.get('new_password', '').strip()
-    allowed_roles = ('admin', 'hr', 'employee', 'viewer', 'delivery')
-    new_role     = request.form.get('role', '').strip()
-    if new_role not in allowed_roles:
-        new_role = None
+    valid_roles  = ('viewer', 'hr', 'admin', 'employee', 'delivery')
+    # Prevent an admin from demoting their own account (would lock themselves out)
+    if user_id == session.get('user_id') and role and role != 'admin':
+        flash('Không thể tự đổi vai trò của chính bạn khỏi admin.', 'error')
+        return redirect(url_for('manage_users'))
     with db.get_db() as conn:
-        if new_role:
+        if role in valid_roles:
             conn.execute(
                 'UPDATE users SET display_name=?, department=?, email=?, role=? WHERE id=?',
-                (display_name, department, email, new_role, user_id)
+                (display_name, department, email, role, user_id)
             )
         else:
             conn.execute(

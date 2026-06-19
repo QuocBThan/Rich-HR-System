@@ -212,18 +212,18 @@
               <input type="text" name="display_name" id="edit-display-name" class="form-control">
             </div>
             <div class="col-md-6">
-              <label class="form-label">Department</label>
-              <input type="text" name="department" id="edit-department" class="form-control">
-            </div>
-            <div class="col-md-6">
               <label class="form-label">Role</label>
               <select name="role" id="edit-role" class="form-select">
                 <option value="viewer">viewer — không có attendance</option>
                 <option value="hr">hr — full attendance access</option>
                 <option value="admin">admin — toàn quyền</option>
                 <option value="employee">employee — cá nhân</option>
-                <option value="delivery">delivery — team giao hàng & kho</option>
+                <option value="delivery">delivery — team giao hàng</option>
               </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Department</label>
+              <input type="text" name="department" id="edit-department" class="form-control">
             </div>
             <div class="col-md-6">
               <label class="form-label">Mật khẩu mới <small style="color:#94a3b8">(để trống nếu không đổi)</small></label>
@@ -275,8 +275,8 @@ function openEdit(u) {
   document.getElementById('edit-username').textContent    = u.username;
   document.getElementById('edit-email').value            = u.email || '';
   document.getElementById('edit-display-name').value     = u.display_name || '';
-  document.getElementById('edit-department').value       = u.department || '';
   document.getElementById('edit-role').value             = u.role || 'viewer';
+  document.getElementById('edit-department').value       = u.department || '';
   document.getElementById('edit-password').value         = '';
   document.getElementById('editForm').action             = '/users/update/' + u.id;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('editUserModal')).show();
