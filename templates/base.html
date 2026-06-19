@@ -438,6 +438,10 @@
       <i class="bi bi-person-lines-fill"></i> Chấm Công Của Tôi
     </a>
     {% elif current_role == 'delivery' %}
+    <div class="sb-section">Cá Nhân</div>
+    <a href="{{ url_for('portal') }}" class="{{ 'active' if request.path == '/portal' }}">
+      <i class="bi bi-person-lines-fill"></i> Chấm Công Của Tôi
+    </a>
     <div class="sb-section">Giao Hàng</div>
     <a href="{{ url_for('delivery') }}" class="{{ 'active' if request.path == '/delivery' }}">
       <i class="bi bi-truck"></i> Đơn Giao Hàng

@@ -1402,10 +1402,21 @@ def change_password_legacy():
 @app.route('/portal')
 @login_required
 def portal():
-    if session.get('role') != 'employee':
+    if session.get('role') not in ('employee', 'delivery'):
         return redirect(url_for('index'))
 
     emp_id = session.get('employee_id', '')
+
+    # For delivery role without a linked employee_id, find by display_name
+    if not emp_id and session.get('role') == 'delivery':
+        display_name = session.get('display_name', '')
+        with db.get_db() as _conn:
+            _row = _conn.execute(
+                'SELECT id FROM employees WHERE name = ?', (display_name,)
+            ).fetchone()
+            if _row:
+                emp_id = _row['id']
+
     if not emp_id:
         flash('Tài khoản này chưa được gán với nhân viên nào. Liên hệ admin.', 'error')
         return redirect(url_for('logout'))
