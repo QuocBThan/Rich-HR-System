@@ -10,6 +10,7 @@ import json as _json
 import re
 import urllib.request
 import urllib.error
+import urllib.parse
 
 
 # ------------------------------------------------------------------ #
@@ -150,6 +151,46 @@ def usps_track(cfg, token, num):
 
 
 # ------------------------------------------------------------------ #
+# EasyPost  —  https://easypost.com  (Tracking is FREE; one key, all carriers)
+# Auth: HTTP Basic with the API key as username. No OAuth needed.
+# ------------------------------------------------------------------ #
+
+# EasyPost status -> our notion of "delivered"
+_EASYPOST_DELIVERED = {'delivered', 'available_for_pickup'}
+
+# Map our carrier code to EasyPost's carrier name
+_EASYPOST_CARRIER = {'ups': 'UPS', 'usps': 'USPS'}
+
+
+def easypost_track(cfg, num, carrier=None):
+    key = (cfg.get('easypost_api_key') or '').strip()
+    if not key:
+        raise RuntimeError('EasyPost: chưa cấu hình API key')
+    fields = {'tracker[tracking_code]': num}
+    cname  = _EASYPOST_CARRIER.get(carrier or '')
+    if cname:
+        fields['tracker[carrier]'] = cname   # omit → EasyPost auto-detects
+    body = urllib.parse.urlencode(fields).encode()
+    auth = base64.b64encode((key + ':').encode()).decode()
+    req  = urllib.request.Request(
+        'https://api.easypost.com/v2/trackers', data=body,
+        headers={'Authorization': f'Basic {auth}',
+                 'Content-Type': 'application/x-www-form-urlencoded'})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = _json.loads(resp.read())
+    status  = (data.get('status') or '').strip()
+    details = data.get('tracking_details') or []
+    last    = (details[-1] if details else {}) or {}
+    return {
+        'status':    (last.get('message') or status.replace('_', ' ')).strip(),
+        'code':      status,
+        'delivered': status in _EASYPOST_DELIVERED,
+        'when':      last.get('datetime', ''),
+        'carrier':   (data.get('carrier') or carrier or '').lower(),
+    }
+
+
+# ------------------------------------------------------------------ #
 # Unified entry — token cache per carrier for batch use
 # ------------------------------------------------------------------ #
 
@@ -165,7 +206,14 @@ class Tracker:
         return self._tok[carrier]
 
     def track(self, num, carrier=None):
-        carrier = carrier or detect_carrier(num)
+        carrier  = carrier or detect_carrier(num)
+        provider = (self.cfg.get('tracking_provider') or 'direct').strip()
+
+        # Aggregator path (EasyPost) — one key covers UPS + USPS, carrier optional
+        if provider == 'easypost':
+            return easypost_track(self.cfg, num, carrier or None)
+
+        # Direct carrier APIs (official UPS/USPS OAuth)
         if carrier not in ('ups', 'usps'):
             raise RuntimeError(f'Không nhận diện được hãng vận chuyển cho mã: {num}')
         tok = self._token(carrier)

@@ -2462,8 +2462,8 @@ def _tracking_sync_run(triggered_by='manual'):
     """Query UPS/USPS for every trackable delivery & return; apply results.
     Returns {ok, updated, checked, errors, logs}."""
     cfg = _load_sys_config()
-    if not (cfg.get('ups_client_id') or cfg.get('usps_client_id')):
-        return {'ok': False, 'error': 'Chưa cấu hình API UPS/USPS.', 'logs': []}
+    if not (cfg.get('ups_client_id') or cfg.get('usps_client_id') or cfg.get('easypost_api_key')):
+        return {'ok': False, 'error': 'Chưa cấu hình API tracking (UPS/USPS hoặc EasyPost).', 'logs': []}
 
     tk   = tracking.Tracker(cfg)
     logs = []
@@ -2525,18 +2525,22 @@ def tracking_config_save():
     if session.get('role') not in ('admin', 'hr'):
         return redirect(url_for('no_access'))
     cfg = _load_sys_config()
+    cfg['tracking_provider']  = request.form.get('tracking_provider', 'easypost').strip()
     cfg['ups_client_id']      = request.form.get('ups_client_id', '').strip()
     cfg['ups_test']           = request.form.get('ups_test') == '1'
     cfg['usps_client_id']     = request.form.get('usps_client_id', '').strip()
     cfg['tracking_auto_sync'] = request.form.get('tracking_auto_sync') == '1'
     cfg['tracking_interval']  = int(request.form.get('tracking_interval', 60) or 60)
-    # Only overwrite secrets when a new value is supplied
+    # Only overwrite secrets/keys when a new value is supplied
     ups_sec  = request.form.get('ups_client_secret', '').strip()
     usps_sec = request.form.get('usps_client_secret', '').strip()
+    ep_key   = request.form.get('easypost_api_key', '').strip()
     if ups_sec:
         cfg['ups_client_secret'] = ups_sec
     if usps_sec:
         cfg['usps_client_secret'] = usps_sec
+    if ep_key:
+        cfg['easypost_api_key'] = ep_key
     _save_sys_config(cfg)
     flash('✅ Đã lưu cấu hình tracking UPS/USPS.', 'success')
     return redirect(url_for('tracking_page'))
@@ -2586,7 +2590,7 @@ def _tracking_auto_loop():
     while True:
         try:
             cfg = _load_sys_config()
-            if cfg.get('tracking_auto_sync') and (cfg.get('ups_client_id') or cfg.get('usps_client_id')):
+            if cfg.get('tracking_auto_sync') and (cfg.get('ups_client_id') or cfg.get('usps_client_id') or cfg.get('easypost_api_key')):
                 _tracking_sync_run(triggered_by='auto')
                 interval = int(cfg.get('tracking_interval', 60)) * 60
             else:

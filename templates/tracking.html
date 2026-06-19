@@ -26,6 +26,24 @@
   <div class="card-body p-4">
     <form method="POST" action="{{ url_for('tracking_config_save') }}">
       <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Nguồn dữ liệu tracking</label>
+          <select name="tracking_provider" class="form-select" style="max-width:360px">
+            <option value="easypost" {{ 'selected' if (cfg.tracking_provider or 'easypost') == 'easypost' }}>EasyPost (miễn phí — 1 key cho UPS+USPS) ★</option>
+            <option value="direct"   {{ 'selected' if cfg.tracking_provider == 'direct' }}>API trực tiếp UPS/USPS (OAuth riêng)</option>
+          </select>
+        </div>
+        <div class="col-12">
+          <div class="card" style="background:#f0fdf4;border-color:#bbf7d0">
+            <div class="card-body py-3">
+              <div class="fw-bold mb-2" style="color:#15803d"><i class="bi bi-stars me-1"></i>EasyPost (khuyên dùng — tracking miễn phí)</div>
+              <label class="form-label">EasyPost API Key</label>
+              <input type="password" name="easypost_api_key" placeholder="{{ '•••• đã lưu (để trống nếu không đổi)' if cfg.easypost_api_key else 'EZAK... hoặc EZTK...' }}" class="form-control" style="max-width:420px">
+              <div class="form-text">Đăng ký tại easypost.com → Account → API Keys. Tracking không tính phí. Hệ tự nhận diện UPS/USPS từ mã.</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12"><hr class="my-1"><small style="color:#94a3b8">Hoặc dùng API trực tiếp của hãng (nếu bạn có credentials OAuth):</small></div>
         <div class="col-md-6">
           <div class="fw-bold mb-2" style="color:#92400e"><i class="bi bi-box-seam me-1"></i>UPS</div>
           <label class="form-label">Client ID</label>
