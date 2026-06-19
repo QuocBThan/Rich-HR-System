@@ -494,6 +494,8 @@
 
   <!-- Department switcher — outside sb-brand to avoid flex clipping -->
   {% set in_delivery = request.path.startswith('/delivery') %}
+  {% set can_hr       = current_role in ('admin', 'hr', 'employee') %}
+  {% set can_delivery = current_role in ('admin', 'hr', 'delivery') %}
   <div class="dept-switcher dropdown w-100" style="padding:0 12px 8px;">
     <button class="dept-btn dropdown-toggle w-100" type="button"
             data-bs-toggle="dropdown" data-bs-auto-close="true"
@@ -503,16 +505,27 @@
     </button>
     <ul class="dropdown-menu dept-menu w-100">
       <li>
+        {% if can_hr %}
         <a class="dropdown-item dept-item {% if not in_delivery %}active{% endif %}"
-           href="{{ url_for('portal') if current_role in ('delivery', 'employee') else url_for('index') }}">
+           href="{{ url_for('index') if current_role in ('admin', 'hr') else url_for('portal') }}">
           <i class="bi bi-person-badge"></i>
           <div>
             <div class="dept-item-name">HR Department</div>
             <div class="dept-item-sub">Attendance &amp; Leave</div>
           </div>
         </a>
+        {% else %}
+        <span class="dropdown-item dept-item disabled">
+          <i class="bi bi-person-badge"></i>
+          <div>
+            <div class="dept-item-name">HR Department</div>
+            <div class="dept-item-sub">Không có quyền truy cập</div>
+          </div>
+        </span>
+        {% endif %}
       </li>
       <li>
+        {% if can_delivery %}
         <a class="dropdown-item dept-item {% if in_delivery %}active{% endif %}"
            href="{{ url_for('delivery') }}">
           <i class="bi bi-truck"></i>
@@ -521,6 +534,15 @@
             <div class="dept-item-sub">Giao Hàng &amp; Kho Máy</div>
           </div>
         </a>
+        {% else %}
+        <span class="dropdown-item dept-item disabled">
+          <i class="bi bi-truck"></i>
+          <div>
+            <div class="dept-item-name">Delivery Department</div>
+            <div class="dept-item-sub">Không có quyền truy cập</div>
+          </div>
+        </span>
+        {% endif %}
       </li>
     </ul>
   </div>
