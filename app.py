@@ -1773,7 +1773,23 @@ def system_update():
 
     def _restart():
         time.sleep(1.5)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        python = sys.executable
+        script = os.path.join(_APP_DIR, 'app.py')
+        bat_path = os.path.join(_APP_DIR, '_restart_launcher.bat')
+        with open(bat_path, 'w', encoding='utf-8') as _f:
+            _f.write(
+                '@echo off\r\n'
+                'timeout /t 3 /nobreak > nul\r\n'
+                f'start "" "{python}" "{script}"\r\n'
+                'del "%~f0"\r\n'
+            )
+        subprocess.Popen(
+            ['cmd.exe', '/c', bat_path],
+            cwd=_APP_DIR,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True
+        )
+        os._exit(0)
 
     threading.Thread(target=_restart, daemon=True).start()
 
